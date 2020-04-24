@@ -1,0 +1,3 @@
+[submodule "components/libsnapcast"]
+	path = components/libsnapcast
+	url = https://github.com/bridadan/libsnapcast
