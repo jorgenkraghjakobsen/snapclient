@@ -152,16 +152,18 @@ static void http_get_task(void *pvParameters)
 
     last_time_sync.tv_sec = 0;
     last_time_sync.tv_usec = 0;
+    uint32_t old_usec = 0; 
+    int32_t diff = 0;
     id_counter = 0;
-
-    OpusDecoder *decoder;
+    
+    OpusDecoder *decoder = NULL;
 
     //int size = opus_decoder_get_size(2);
-    int oe = 0;
-    decoder = opus_decoder_create(48000,2,&oe);
+    //int oe = 0;
+    //decoder = opus_decoder_create(48000,2,&oe);
     //  int error = opus_decoder_init(decoder, 48000, 2);
   	//printf("Initialized Decoder: %d", oe);
-	  int16_t *audio = (int16_t *)malloc(960*1*sizeof(int16_t));
+	int16_t *audio = (int16_t *)malloc(960*2*sizeof(int16_t)); // 960*2: 20ms, 960*1: 10ms 
     int16_t pcm_size = 120;
     uint16_t channels;
 
@@ -243,23 +245,22 @@ static void http_get_task(void *pvParameters)
             ESP_LOGI(TAG, "Failed to serialize base message\r\n");
             return;
         }
-
+         
         write(sockfd, base_message_serialized, BASE_MESSAGE_SIZE);
         write(sockfd, hello_message_serialized, base_message.size);
         free(hello_message_serialized);
-
+        int readcalls ; 
         for (;;) {
             size = 0;
+            readcalls = 0; 
             while (size < BASE_MESSAGE_SIZE) {
                 result = read(sockfd, &(buff[size]), BASE_MESSAGE_SIZE - size);
                 if (result < 0) {
                     ESP_LOGI(TAG, "Failed to read from server: %d\r\n", result);
                     return;
                 }
-
                 size += result;
             }
-
             result = gettimeofday(&now, NULL);
             if (result) {
                 ESP_LOGI(TAG, "Failed to gettimeofday\r\n");
@@ -272,10 +273,16 @@ static void http_get_task(void *pvParameters)
                 // TODO there should be a big circular buffer or something for this
                 return;
             }
-
+            //ESP_LOGI(TAG,"%d %d : %d %d : %d %d",base_message.size, base_message.refersTo,
+            //base_message.sent.sec,base_message.sent.usec,
+            //base_message.received.sec,base_message.received.usec);  
+            diff = (uint32_t)now.tv_usec-old_usec; 
+            if (diff < 0)  
+            { diff = diff + 1000000; }    
+            //ESP_LOGI(TAG,"%d %d %d %d",base_message.size, (uint32_t)now.tv_usec, old_usec, diff);
             base_message.received.sec = now.tv_sec;
             base_message.received.usec = now.tv_usec;
-
+            old_usec = now.tv_usec;
             start = buff;
             size = 0;
             while (size < base_message.size) {
@@ -333,7 +340,7 @@ static void http_get_task(void *pvParameters)
 
                     //ESP_LOGI(TAG, "Received wire message\r\n");
                     size = wire_chunk_message.size;
-                    start = wire_chunk_message.payload;
+                    start = (wire_chunk_message.payload);
                     //ESP_LOGI(TAG, "size : %d\n",size);
 
                     int frame_size = 0;
@@ -342,11 +349,12 @@ static void http_get_task(void *pvParameters)
                     {  pcm_size = pcm_size * 2;
                        ESP_LOGI(TAG, "OPUS encoding buffer too small, resizing to %d samples per channel", pcm_size/channels);
                     }
+                    //ESP_LOGI(TAG, "Size in: %d -> %d,%d",size,frame_size, pcm_size);
                     if (frame_size < 0 )
                     { ESP_LOGE(TAG, "Decode error : %d \n",frame_size);
                     } else
                     {
-                      write_ringbuf(audio,size*4*sizeof(uint16_t));
+                      write_ringbuf(audio,frame_size*2*sizeof(uint16_t));
                     }
                     wire_chunk_message_free(&wire_chunk_message);
                 break;
@@ -363,7 +371,8 @@ static void http_get_task(void *pvParameters)
                         return;
                     }
 
-                    ESP_LOGI(TAG, "Setting volume: %d", server_settings_message.volume);
+                    ESP_LOGI(TAG, "Setting volume: %d", server_settings_message.volume); 
+                    // TODO abstract volume setting for various output 
                     uint8_t cmd[4];
                     cmd[0] = 128-server_settings_message.volume  ;
                     cmd[1] = cmd[0];
@@ -454,10 +463,10 @@ void set_time_from_sntp() {
     ESP_LOGI(TAG, "Initializing SNTP");
     sntp_setoperatingmode(SNTP_OPMODE_POLL);
     sntp_setservername(0, "pool.ntp.org");
-	  sntp_setservername(1, "europe.pool.ntp.org");
-	  sntp_setservername(2, "uk.pool.ntp.org ");
-	  sntp_setservername(3, "us.pool.ntp.org");
-	  sntp_init();
+	sntp_setservername(1, "europe.pool.ntp.org");
+	sntp_setservername(2, "uk.pool.ntp.org ");
+	sntp_setservername(3, "us.pool.ntp.org");
+	sntp_init();
 
     // wait for time to be set
     time_t now = 0;
@@ -506,7 +515,7 @@ void app_main(void)
     set_time_from_sntp();
     printf("Called\n");
 
-    xTaskCreatePinnedToCore(&http_get_task, "http_get_task", 2*4096, NULL, 8, NULL, 1);
+    xTaskCreatePinnedToCore(&http_get_task, "http_get_task", 3*4096, NULL, 5, NULL, 0);
     printf("Called http\n");
     while (1) {
         //audio_event_iface_msg_t msg;

@@ -30,7 +30,7 @@ void setup_dsp_i2s(uint32_t sample_rate)
     .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,                           //2-channels
     .communication_format = I2S_COMM_FORMAT_I2S_MSB,
     .dma_buf_count = 8, // 8
-    .dma_buf_len = 512, //512,
+    .dma_buf_len = 480, //512,
     //.intr_alloc_flags = 1,                                                  //Default interrupt priority
     .use_apll = true,
     .fixed_mclk = 0,
@@ -51,7 +51,7 @@ void setup_dsp_i2s(uint32_t sample_rate)
     .tx_desc_auto_clear = true                                                //Auto clear tx descriptor on underflow
   };
 
-  i2s_driver_install(0, &i2s_config0, 7, &i2s_queue);
+  i2s_driver_install(0, &i2s_config0, 8, &i2s_queue);
   //i2s_driver_install(1, &i2s_config1, 4, &i2s_queue);
 
   i2s_zero_dma_buffer(0);
@@ -236,10 +236,10 @@ static void dsp_i2s_task_handler(void *arg)
 
 void dsp_i2s_task_init(uint32_t sample_rate)
 { setup_dsp_i2s(sample_rate);
-  s_ringbuf_i2s = xRingbufferCreate(8*1024,RINGBUF_TYPE_BYTEBUF);  // 8*1024
+  s_ringbuf_i2s = xRingbufferCreate(32*1024,RINGBUF_TYPE_BYTEBUF);  // 8*1024
   if (s_ringbuf_i2s == NULL) { return; }
   printf("Ringbuffer ok\n");
-  xTaskCreate(dsp_i2s_task_handler, "DSP_I2S", 48*1024, NULL, 8, &s_dsp_i2s_task_handle);
+  xTaskCreate(dsp_i2s_task_handler, "DSP_I2S", 48*1024, NULL, 6, &s_dsp_i2s_task_handle);
 }
 
 void dsp_i2s_task_deninit(void)
