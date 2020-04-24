@@ -30,13 +30,13 @@ void setup_dsp_i2s(uint32_t sample_rate)
     .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,                           //2-channels
     .communication_format = I2S_COMM_FORMAT_I2S_MSB,
     .dma_buf_count = 8, // 8
-    .dma_buf_len = 480, //512,
+    .dma_buf_len = 512, //512,
     //.intr_alloc_flags = 1,                                                  //Default interrupt priority
     .use_apll = true,
     .fixed_mclk = 0,
     .tx_desc_auto_clear = true                                                //Auto clear tx descriptor on underflow
   };
-  
+
   i2s_config_t i2s_config1 = {
     .mode = I2S_MODE_SLAVE | I2S_MODE_TX,                                  // Only TX
     .sample_rate = sample_rate,
@@ -51,14 +51,14 @@ void setup_dsp_i2s(uint32_t sample_rate)
     .tx_desc_auto_clear = true                                                //Auto clear tx descriptor on underflow
   };
 
-  i2s_driver_install(0, &i2s_config0, 4, &i2s_queue);
+  i2s_driver_install(0, &i2s_config0, 7, &i2s_queue);
   //i2s_driver_install(1, &i2s_config1, 4, &i2s_queue);
 
   i2s_zero_dma_buffer(0);
   //i2s_zero_dma_buffer(1);
 
   i2s_pin_config_t pin_config0 = {
-    .bck_io_num = 12, //CONFIG_EXAMPLE_I2S_BCK_PIN,
+    .bck_io_num = 23, // 12, //CONFIG_EXAMPLE_I2S_BCK_PIN,
     .ws_io_num = 13, //CONFIG_EXAMPLE_I2S_LRCK_PIN,
     .data_out_num = 14, //CONFIG_EXAMPLE_I2S_DATA_PIN,
     .data_in_num = -1                                                       //Not used
@@ -107,16 +107,21 @@ static void dsp_i2s_task_handler(void *arg)
         }
         uint8_t *data_ptr = audio;
 
-        for (uint16_t i=0;i<len;i++)
+        /*for (uint16_t i=0;i<len;i++)
         {
           sbuffer0[i] = ((float) ((int16_t) (audio[i*4+1]<<8) + audio[i*4+0]))/32768;
           sbuffer1[i] = ((float) ((int16_t) (audio[i*4+3]<<8) + audio[i*4+2]))/32768;
           sbuffer2[i] = ((sbuffer0[i]/2) +  (sbuffer1[i]/2));
         }
-
+        */
         switch (dspFlow) {
           case dspfStereo :
-            { for (uint16_t i=0; i<len; i++)
+            {   if (cnt%100==0)
+                { ESP_LOGI("I2S", "In dspf Stero :%d",chunk_size);
+                  //ws_server_send_bin_client(0,(char*)audio, 240);
+                  //printf("%d %d \n",byteWritten, i2s_evt.size );
+                }
+              for (uint16_t i=0; i<len; i++)
               { audio[i*4+0] = (muteCH[0] == 1)? 0 : audio[i*4+0];
                 audio[i*4+1] = (muteCH[0] == 1)? 0 : audio[i*4+1];
                 audio[i*4+2] = (muteCH[1] == 1)? 0 : audio[i*4+2];

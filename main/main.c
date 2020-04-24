@@ -42,7 +42,7 @@ xQueueHandle i2s_queue;
 /* Constants that aren't configurable in menuconfig */
 #define HOST "192.168.1.158"
 #define PORT 1704
-#define BUFF_LEN 6000
+#define BUFF_LEN 4000
 
 /* Logging tag */
 static const char *TAG = "SNAPCAST";
@@ -153,20 +153,20 @@ static void http_get_task(void *pvParameters)
     last_time_sync.tv_sec = 0;
     last_time_sync.tv_usec = 0;
     id_counter = 0;
-   
+
     OpusDecoder *decoder;
 
     //int size = opus_decoder_get_size(2);
     int oe = 0;
     decoder = opus_decoder_create(48000,2,&oe);
     //  int error = opus_decoder_init(decoder, 48000, 2);
- 	//printf("Initialized Decoder: %d", oe);
-	int16_t *audio = (int16_t *)malloc(960*2*sizeof(int16_t));
-    int16_t pcm_size = 120;  
+  	//printf("Initialized Decoder: %d", oe);
+	  int16_t *audio = (int16_t *)malloc(960*1*sizeof(int16_t));
+    int16_t pcm_size = 120;
     uint16_t channels;
-                    
+
     dsp_i2s_task_init(48000);
-   
+
     while(1) {
         /* Wait for the callback to set the CONNECTED_BIT in the
            event group.
@@ -287,7 +287,7 @@ static void http_get_task(void *pvParameters)
 
                 size += result;
             }
-            
+
             switch (base_message.type) {
                 case SNAPCAST_MESSAGE_CODEC_HEADER:
                     result = codec_header_message_deserialize(&codec_header_message, start, size);
@@ -297,13 +297,13 @@ static void http_get_task(void *pvParameters)
                     }
 
                     ESP_LOGI(TAG, "Received codec header message\r\n");
-                    
+
                     size = codec_header_message.size;
                     start = codec_header_message.payload;
                     ESP_LOGI(TAG, "Codec : %s , Size: %d \n",codec_header_message.codec,size);
-                    
+
                     uint32_t rate;
-                    memcpy(&rate, start+4,sizeof(rate)); 
+                    memcpy(&rate, start+4,sizeof(rate));
                     uint16_t bits;
                     memcpy(&bits, start+8,sizeof(bits));
                     //uint16_t channels;
@@ -311,10 +311,10 @@ static void http_get_task(void *pvParameters)
                     ESP_LOGI(TAG, "Opus sampleformat: %d:%d:%d\n",rate,bits,channels);
                     int error = 0;
                     decoder = opus_decoder_create(rate,channels,&error);
-                    if (error != 0) 
+                    if (error != 0)
                     { ESP_LOGI(TAG, "Failed to init opus coder"); }
                     ESP_LOGI(TAG, "Initialized opus Decoder: %d", error);
-	
+
                     codec_header_message_free(&codec_header_message);
                     received_header = true;
 
@@ -333,24 +333,24 @@ static void http_get_task(void *pvParameters)
 
                     //ESP_LOGI(TAG, "Received wire message\r\n");
                     size = wire_chunk_message.size;
-                    start = wire_chunk_message.payload;  
+                    start = wire_chunk_message.payload;
                     //ESP_LOGI(TAG, "size : %d\n",size);
-                    
-                    int frame_size = 0; 
+
+                    int frame_size = 0;
                     while ((frame_size = opus_decode(decoder, (unsigned char *)start, size, (opus_int16*)audio,
                                                      pcm_size/channels, 0)) == OPUS_BUFFER_TOO_SMALL)
                     {  pcm_size = pcm_size * 2;
-                       ESP_LOGI(TAG, "OPUS encoding buffer too small, resizing to %d samples per channel", pcm_size/channels); 
-                    }                                                     
+                       ESP_LOGI(TAG, "OPUS encoding buffer too small, resizing to %d samples per channel", pcm_size/channels);
+                    }
                     if (frame_size < 0 )
-                    { ESP_LOGE(TAG, "Decode error : %d \n",frame_size); 
-                    } else 
-                    { 
+                    { ESP_LOGE(TAG, "Decode error : %d \n",frame_size);
+                    } else
+                    {
                       write_ringbuf(audio,size*4*sizeof(uint16_t));
                     }
                     wire_chunk_message_free(&wire_chunk_message);
                 break;
-                
+
                 case SNAPCAST_MESSAGE_SERVER_SETTINGS:
                     // The first 4 bytes in the buffer are the size of the string.
                     // We don't need this, so we'll shift the entire buffer over 4 bytes
@@ -364,7 +364,7 @@ static void http_get_task(void *pvParameters)
                     }
 
                     ESP_LOGI(TAG, "Setting volume: %d", server_settings_message.volume);
-                    uint8_t cmd[4];  
+                    uint8_t cmd[4];
                     cmd[0] = 128-server_settings_message.volume  ;
                     cmd[1] = cmd[0];
                     ma_write(0x20,1,0x0040,cmd,1);
@@ -454,7 +454,10 @@ void set_time_from_sntp() {
     ESP_LOGI(TAG, "Initializing SNTP");
     sntp_setoperatingmode(SNTP_OPMODE_POLL);
     sntp_setservername(0, "pool.ntp.org");
-    sntp_init();
+	  sntp_setservername(1, "europe.pool.ntp.org");
+	  sntp_setservername(2, "uk.pool.ntp.org ");
+	  sntp_setservername(3, "us.pool.ntp.org");
+	  sntp_init();
 
     // wait for time to be set
     time_t now = 0;
@@ -477,22 +480,22 @@ void set_time_from_sntp() {
 }
 
 void app_main(void)
-{   
+{
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
       ESP_ERROR_CHECK(nvs_flash_erase());
       ret = nvs_flash_init();
     }
-    ESP_ERROR_CHECK(ret); 
+    ESP_ERROR_CHECK(ret);
     //setup_ma120();
     //ma120_setup_audio(0x20);
-    
+
     setup_ma120x0();
-    
+
     //setup_rtp_i2s();
 
     wifi_init_sta();
-    
+
     uint8_t base_mac[6];
     // Get MAC address for WiFi station
     esp_read_mac(base_mac, ESP_MAC_WIFI_STA);
@@ -508,7 +511,7 @@ void app_main(void)
     while (1) {
         //audio_event_iface_msg_t msg;
         vTaskDelay(2000/portTICK_PERIOD_MS);
-        
+
         esp_err_t ret = 0; //audio_event_iface_listen(evt, &msg, portMAX_DELAY);
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "[ * ] Event interface error : %d", ret);
