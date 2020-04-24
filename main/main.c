@@ -26,10 +26,12 @@
 #include "driver/i2s.h"
 #include "rtprx.h"
 #include "MerusAudio.h"
-
+#include "dsp_processor.h"
 #include "snapcast.h"
 
 #include <sys/time.h>
+
+xQueueHandle i2s_queue;
 
 /* The examples use simple WiFi configuration that you can set via
    'make menuconfig'.
@@ -158,11 +160,13 @@ static void http_get_task(void *pvParameters)
     int oe = 0;
     decoder = opus_decoder_create(48000,2,&oe);
     //  int error = opus_decoder_init(decoder, 48000, 2);
- 	printf("Initialized Decoder: %d", oe);
+ 	//printf("Initialized Decoder: %d", oe);
 	int16_t *audio = (int16_t *)malloc(960*2*sizeof(int16_t));
-    
-    setup_rtp_i2s();
-
+    int16_t pcm_size = 120;  
+    uint16_t channels;
+                    
+    dsp_i2s_task_init(48000);
+   
     while(1) {
         /* Wait for the callback to set the CONNECTED_BIT in the
            event group.
@@ -215,7 +219,7 @@ static void http_get_task(void *pvParameters)
         hello_message_t hello_message = {
             mac_address,
             "ESP32-Caster",
-            "0.0.0",
+            "0.0.2",
             "libsnapcast",
             "esp32",
             "xtensa",
@@ -283,9 +287,7 @@ static void http_get_task(void *pvParameters)
 
                 size += result;
             }
-            //print_buffer(start, size);
-            //ESP_LOGI(TAG, "\r\n");
-
+            
             switch (base_message.type) {
                 case SNAPCAST_MESSAGE_CODEC_HEADER:
                     result = codec_header_message_deserialize(&codec_header_message, start, size);
@@ -299,15 +301,23 @@ static void http_get_task(void *pvParameters)
                     size = codec_header_message.size;
                     start = codec_header_message.payload;
                     ESP_LOGI(TAG, "Codec : %s , Size: %d \n",codec_header_message.codec,size);
-
-                    while (size > 0) {
-                        result = 1; // raw_stream_write(snapcast_stream, start, size);
-                        start += result; // TODO pointer arithmetic is bad maybe?
-                        size -= result;
-                    }
-
+                    
+                    uint32_t rate;
+                    memcpy(&rate, start+4,sizeof(rate)); 
+                    uint16_t bits;
+                    memcpy(&bits, start+8,sizeof(bits));
+                    //uint16_t channels;
+                    memcpy(&channels, start+10,sizeof(channels));
+                    ESP_LOGI(TAG, "Opus sampleformat: %d:%d:%d\n",rate,bits,channels);
+                    int error = 0;
+                    decoder = opus_decoder_create(rate,channels,&error);
+                    if (error != 0) 
+                    { ESP_LOGI(TAG, "Failed to init opus coder"); }
+                    ESP_LOGI(TAG, "Initialized opus Decoder: %d", error);
+	
                     codec_header_message_free(&codec_header_message);
                     received_header = true;
+
                 break;
 
                 case SNAPCAST_MESSAGE_WIRE_CHUNK:
@@ -326,16 +336,18 @@ static void http_get_task(void *pvParameters)
                     start = wire_chunk_message.payload;  
                     //ESP_LOGI(TAG, "size : %d\n",size);
                     
-                    int msize = opus_decode(decoder, (unsigned char *)start, size, (opus_int16*)audio, 960, 0);
-                    if (msize < 0 )
-                    { printf("Decode error : %d \n",msize); }
-
-                   
-                    size_t bWritten;
-                    int ret = i2s_write_expand(0, (char*)audio, size*4*sizeof(int16_t),16,32, &bWritten,  (portTickType)portMAX_DELAY);
-                    if (ret != 0 ) printf("Error I2S written: %d %d %d \n",ret, size*2*sizeof(int16_t) ,bWritten);
- 
-     
+                    int frame_size = 0; 
+                    while ((frame_size = opus_decode(decoder, (unsigned char *)start, size, (opus_int16*)audio,
+                                                     pcm_size/channels, 0)) == OPUS_BUFFER_TOO_SMALL)
+                    {  pcm_size = pcm_size * 2;
+                       ESP_LOGI(TAG, "OPUS encoding buffer too small, resizing to %d samples per channel", pcm_size/channels); 
+                    }                                                     
+                    if (frame_size < 0 )
+                    { ESP_LOGE(TAG, "Decode error : %d \n",frame_size); 
+                    } else 
+                    { 
+                      write_ringbuf(audio,size*4*sizeof(uint16_t));
+                    }
                     wire_chunk_message_free(&wire_chunk_message);
                 break;
                 
@@ -355,7 +367,7 @@ static void http_get_task(void *pvParameters)
                     uint8_t cmd[4];  
                     cmd[0] = 128-server_settings_message.volume  ;
                     cmd[1] = cmd[0];
-                    ma_write(0x20,2,0x0003,cmd,2);
+                    ma_write(0x20,1,0x0040,cmd,1);
                 break;
 
                 case SNAPCAST_MESSAGE_TIME:

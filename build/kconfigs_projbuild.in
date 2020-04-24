@@ -1,0 +1,5 @@
+source "/home/jakobsen/esp/snapclint/components/MerusAudio/Kconfig.projbuild"
+source "/home/jakobsen/esp/esp-idf/components/app_update/Kconfig.projbuild"
+source "/home/jakobsen/esp/esp-idf/components/bootloader/Kconfig.projbuild"
+source "/home/jakobsen/esp/esp-idf/components/esptool_py/Kconfig.projbuild"
+source "/home/jakobsen/esp/esp-idf/components/partition_table/Kconfig.projbuild"

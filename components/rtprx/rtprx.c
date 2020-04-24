@@ -145,9 +145,9 @@ void setup_rtp_i2s()
     .sample_rate = 48000,
     .bits_per_sample = 32,
     .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,                           //2-channels
-    .communication_format = I2S_COMM_FORMAT_I2S_MSB, 
+    .communication_format = I2S_COMM_FORMAT_I2S_MSB,  
     .dma_buf_count = 8,
-    .dma_buf_len = 512,
+    .dma_buf_len = 480,
     //.intr_alloc_flags = 1,                                                  //Default interrupt priority
     .use_apll = true,
     .fixed_mclk = 0,
@@ -158,9 +158,9 @@ void setup_rtp_i2s()
   i2s_zero_dma_buffer(0);
 
   i2s_pin_config_t pin_config = {
-    .bck_io_num = 14, //CONFIG_EXAMPLE_I2S_BCK_PIN,
-    .ws_io_num = 13, //CONFIG_EXAMPLE_I2S_LRCK_PIN,
-    .data_out_num = 12, //CONFIG_EXAMPLE_I2S_DATA_PIN,
+    .bck_io_num   = 12, //CONFIG_EXAMPLE_I2S_BCK_PIN,
+    .ws_io_num    = 13, //CONFIG_EXAMPLE_I2S_LRCK_PIN,
+    .data_out_num = 14, //CONFIG_EXAMPLE_I2S_DATA_PIN,
     .data_in_num = -1                                                       //Not used
   };
 
