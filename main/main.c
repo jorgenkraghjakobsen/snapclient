@@ -282,6 +282,10 @@ static void http_get_task(void *pvParameters)
             //ESP_LOGI(TAG,"%d %d %d %d",base_message.size, (uint32_t)now.tv_usec, old_usec, diff);
             base_message.received.sec = now.tv_sec;
             base_message.received.usec = now.tv_usec;
+            //ESP_LOGI(TAG,"%d %d : %d %d : %d %d",base_message.size, base_message.refersTo,
+            //base_message.sent.sec,base_message.sent.usec,
+            //base_message.received.sec,base_message.received.usec);  
+            
             old_usec = now.tv_usec;
             start = buff;
             size = 0;
@@ -385,7 +389,11 @@ static void http_get_task(void *pvParameters)
                         ESP_LOGI(TAG, "Failed to deserialize time message\r\n");
                         return;
                     }
-
+                    ESP_LOGI(TAG, "BaseTX     : %d %d ", base_message.sent.sec , base_message.sent.usec);
+                    ESP_LOGI(TAG, "BaseRX     : %d %d ", base_message.received.sec , base_message.received.usec);
+                    ESP_LOGI(TAG, "baseTX->RX : %d s ", (base_message.received.sec - base_message.sent.sec)/1000);
+                    ESP_LOGI(TAG, "baseTX->RX : %dms ", (base_message.received.usec - base_message.sent.usec)/1000);
+                    ESP_LOGI(TAG, "Latency : %d.%d ", time_message.latency.sec,  time_message.latency.usec/1000);
                     // tv == server to client latency (s2c)
                     // time_message.latency == client to server latency(c2s)
                     // TODO the fact that I have to do this simple conversion means
@@ -400,10 +408,10 @@ static void http_get_task(void *pvParameters)
 
                     // tv1 == c2s: client to server
                     // tv2 == s2c: server to client
-                    ESP_LOGI(TAG, "c2s: %ld %ld\r\n", tv1.tv_sec, tv1.tv_usec);
-                    ESP_LOGI(TAG, "s2c: %ld %ld\r\n", tv2.tv_sec, tv2.tv_usec);
+                    //ESP_LOGI(TAG, "c2s: %ld %ld", tv1.tv_sec, tv1.tv_usec);
+                    //ESP_LOGI(TAG, "s2c: %ld %ld", tv2.tv_sec, tv2.tv_usec);
                     time_diff = (((double)(tv1.tv_sec - tv2.tv_sec) / 2) * 1000) + (((double)(tv1.tv_usec - tv2.tv_usec) / 2) / 1000);
-                    ESP_LOGI(TAG, "Current latency: %fms\r\n", time_diff);
+                    //ESP_LOGI(TAG, "Current latency: %fms\r\n", time_diff);
                 break;
             }
             // If it's been a second or longer since our last time message was
@@ -460,12 +468,11 @@ static void http_get_task(void *pvParameters)
 void set_time_from_sntp() {
     xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT,
                         false, true, portMAX_DELAY);
+    //ESP_LOGI(TAG, "clock %");
+    
     ESP_LOGI(TAG, "Initializing SNTP");
     sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    sntp_setservername(0, "pool.ntp.org");
-	sntp_setservername(1, "europe.pool.ntp.org");
-	sntp_setservername(2, "uk.pool.ntp.org ");
-	sntp_setservername(3, "us.pool.ntp.org");
+    sntp_setservername(0, "europe.pool.ntp.org");
 	sntp_init();
 
     // wait for time to be set
@@ -481,9 +488,11 @@ void set_time_from_sntp() {
     }
 
     char strftime_buf[64];
+    //setenv("TZ", "UTC+2", 1);
+    //tzset();
 
     // Set timezone to Eastern Standard Time and print local time
-    localtime_r(&now, &timeinfo);
+    //localtime_r(&now, &timeinfo);
     strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
     ESP_LOGI(TAG, "The current date/time in UTC is: %s", strftime_buf);
 }
