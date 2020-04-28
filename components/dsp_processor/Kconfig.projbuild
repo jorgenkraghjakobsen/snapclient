@@ -1,0 +1,41 @@
+# Config file for ESP32 DSP Processor 
+
+menu "ESP32 audio I2S config"
+    config MASTER_I2S_BCK_PIN
+        int "Master i2s bck"
+        default 23
+        help
+            Master audio interface bit clock.
+
+    config MASTER_I2S_LRCK_PIN
+        int "Master i2s lrck"
+        default 13
+        help
+            Master audio interface left/right sync clock.
+
+    config MASTER_I2S_DATAOUT_PIN
+        int "Master i2s data out"
+        default 14
+        help
+            Master audio interface data out.
+
+    config SLAVE_I2S_BCK_PIN
+        int "Slave i2s bck"
+        default 26
+        help
+            Slave audio interface bit clock.
+
+    config SLAVE_I2S_LRCK_PIN
+        int "Slave i2s lrck"
+        default 12
+        help
+            Slave audio interface left/right sync clock.
+
+    config SLAVE_I2S_DATAOUT_PIN
+        int "Slave i2s data out"
+        default 5
+        help
+            Slave audio interface data out.
+
+    
+endmenu

@@ -167,7 +167,7 @@ static void http_get_task(void *pvParameters)
     int16_t pcm_size = 120;
     uint16_t channels;
 
-    dsp_i2s_task_init(48000);
+    dsp_i2s_task_init(48000,false);
 
     while(1) {
         /* Wait for the callback to set the CONNECTED_BIT in the

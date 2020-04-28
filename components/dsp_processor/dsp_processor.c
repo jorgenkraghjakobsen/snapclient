@@ -1,3 +1,5 @@
+
+
 #include <stdint.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -15,64 +17,62 @@ static xTaskHandle s_dsp_i2s_task_handle = NULL;
 static RingbufHandle_t s_ringbuf_i2s = NULL;
 extern xQueueHandle i2s_queue;
 
-//enum dspFlows { dspfStereo, dspfBiamp, dspf2DOT1, dspfFunkyHonda };
 uint dspFlow = dspfStereo;
 
 uint8_t muteCH[4];
 ptype_t bq[6];
 
-void setup_dsp_i2s(uint32_t sample_rate)
+void setup_dsp_i2s(uint32_t sample_rate, bool slave_i2s)
 {
   i2s_config_t i2s_config0 = {
     .mode = I2S_MODE_MASTER | I2S_MODE_TX,                                  // Only TX
     .sample_rate = sample_rate,
     .bits_per_sample = 32,
-    .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,                           //2-channels
+    .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,                           // 2-channels
     .communication_format = I2S_COMM_FORMAT_I2S_MSB,
-    .dma_buf_count = 8, // 8
-    .dma_buf_len = 480, //512,
-    //.intr_alloc_flags = 1,                                                  //Default interrupt priority
+    .dma_buf_count = 8, 
+    .dma_buf_len = 480, 
     .use_apll = true,
     .fixed_mclk = 0,
-    .tx_desc_auto_clear = true                                                //Auto clear tx descriptor on underflow
+    .tx_desc_auto_clear = true                                              // Auto clear tx descriptor on underflow
   };
-
-  i2s_config_t i2s_config1 = {
-    .mode = I2S_MODE_SLAVE | I2S_MODE_TX,                                  // Only TX
-    .sample_rate = sample_rate,
-    .bits_per_sample = 32,
-    .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,                           //2-channels
-    .communication_format = I2S_COMM_FORMAT_I2S_MSB,
-    .dma_buf_count = 8, // 8
-    .dma_buf_len = 480, //512,
-    //.intr_alloc_flags = 1,                                                  //Default interrupt priority
-    .use_apll = true,
-    .fixed_mclk = 0,
-    .tx_desc_auto_clear = true                                                //Auto clear tx descriptor on underflow
-  };
-
-  i2s_driver_install(0, &i2s_config0, 8, &i2s_queue);
-  //i2s_driver_install(1, &i2s_config1, 4, &i2s_queue);
-
-  i2s_zero_dma_buffer(0);
-  //i2s_zero_dma_buffer(1);
 
   i2s_pin_config_t pin_config0 = {
-    .bck_io_num = 23, // 12, //CONFIG_EXAMPLE_I2S_BCK_PIN,
-    .ws_io_num = 13, //CONFIG_EXAMPLE_I2S_LRCK_PIN,
-    .data_out_num = 14, //CONFIG_EXAMPLE_I2S_DATA_PIN,
-    .data_in_num = -1                                                       //Not used
+    .bck_io_num   = CONFIG_MASTER_I2S_BCK_PIN,
+    .ws_io_num    = CONFIG_MASTER_I2S_LRCK_PIN,
+    .data_out_num = CONFIG_MASTER_I2S_DATAOUT_PIN,
+    .data_in_num  = -1                                                       //Not used
   };
+
+  i2s_driver_install(0, &i2s_config0, 7, &i2s_queue);
+  i2s_zero_dma_buffer(0);
   i2s_set_pin(0, &pin_config0);
 
+  i2s_config_t i2s_config1 = {
+    .mode = I2S_MODE_SLAVE | I2S_MODE_TX,                                   // Only TX - Slave channel 
+    .sample_rate = sample_rate,
+    .bits_per_sample = 32,
+    .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,                           // 2-channels
+    .communication_format = I2S_COMM_FORMAT_I2S_MSB,
+    .dma_buf_count = 8, 
+    .dma_buf_len = 480, 
+    .use_apll = true,
+    .fixed_mclk = 0,
+    .tx_desc_auto_clear = true                                              // Auto clear tx descriptor on underflow
+  };
+
   i2s_pin_config_t pin_config1 = {
-    .bck_io_num = 15, //CONFIG_EXAMPLE_I2S_BCK_PIN,
-    .ws_io_num = 4, //CONFIG_EXAMPLE_I2S_LRCK_PIN,
-    .data_out_num = 23, //CONFIG_EXAMPLE_I2S_DATA_PIN,
+    .bck_io_num   =  CONFIG_SLAVE_I2S_BCK_PIN,
+    .ws_io_num    =  CONFIG_SLAVE_I2S_LRCK_PIN,
+    .data_out_num =  CONFIG_SLAVE_I2S_DATAOUT_PIN,
     .data_in_num = -1                                                       //Not used
   };
-  //i2s_set_pin(1, &pin_config1);
-
+  
+  if (slave_i2s) {
+    i2s_driver_install(1, &i2s_config1, 7, &i2s_queue);
+    i2s_zero_dma_buffer(1);
+    i2s_set_pin(1, &pin_config1);
+  }
 }
 
 
@@ -227,15 +227,15 @@ static void dsp_i2s_task_handler(void *arg)
 
         if (cnt%100==0)
         { //ws_server_send_bin_client(0,(char*)audio, 240);
-            //printf("%d %d \n",byteWritten, i2s_evt.size );
+          //printf("%d %d \n",byteWritten, i2s_evt.size );
         }
         vRingbufferReturnItem(s_ringbuf_i2s,(void *)audio);
     }
   }
 }
 
-void dsp_i2s_task_init(uint32_t sample_rate)
-{ setup_dsp_i2s(sample_rate);
+void dsp_i2s_task_init(uint32_t sample_rate,bool slave)
+{ setup_dsp_i2s(sample_rate,slave);
   s_ringbuf_i2s = xRingbufferCreate(32*1024,RINGBUF_TYPE_BYTEBUF);  // 8*1024
   if (s_ringbuf_i2s == NULL) { return; }
   printf("Ringbuffer ok\n");
@@ -260,25 +260,23 @@ size_t write_ringbuf(const uint8_t *data, size_t size)
 }
 
 
-// DSP processor
+// ESP32 DSP processor
 //======================================================
 // Each time a buffer of audio is passed to the DSP - samples are
-// processoed according to a list audio node processings.
+// processed according to a dynamic list of audio processing nodes.
 
 // Each audio processor node consist of a data struct holding the
-// required weights and states for processing a automomous filter
+// required weights and states for processing an automomous processing
 // function. The high level parameters is maintained in the structre
-// as well.
+// as well
 
 // Release - Prove off concept
 // ----------------------------------------
-// Fixed 2x2 biquad flow high low seperation for each channel
-// Interface for cross over and level
-// Additional dynamic bass boost
-//
+// Fixed 2x2 biquad flow Xover for biAmp systems
+// Interface for cross over frequency and level
 
-void dsp_setup_flow(double freq ) {
-  float f = freq/48000/2;
+void dsp_setup_flow(double freq, uint32_t samplerate) {
+  float f = freq/samplerate/2.;
 
   bq[0] = (ptype_t) { LPF, f, 0, 0.707, NULL, NULL, {0,0,0,0,0}, {0, 0} } ;
   bq[1] = (ptype_t) { LPF, f, 0, 0.707, NULL, NULL, {0,0,0,0,0}, {0, 0} } ;
@@ -296,9 +294,9 @@ void dsp_setup_flow(double freq ) {
   for (uint8_t n=0; n<=5; n++)
   { switch (bq[n].filtertype) {
       case LPF: dsps_biquad_gen_lpf_f32( bq[n].coeffs, bq[n].freq, bq[n].q );
-              break;
+                break;
       case HPF: dsps_biquad_gen_hpf_f32( bq[n].coeffs, bq[n].freq, bq[n].q );
-              break;
+                break;
       default : break;
     }
     for (uint8_t i = 0;i <=3 ;i++ )
@@ -308,10 +306,10 @@ void dsp_setup_flow(double freq ) {
  }
 }
 
-void dsp_set_xoverfreq(uint8_t freqh, uint8_t freql) {
+void dsp_set_xoverfreq(uint8_t freqh, uint8_t freql,uint32_t samplerate) {
   float freq =  freqh*256 + freql;
   printf("%f\n",freq);
-  float f = freq/48000.0/2.0;
+  float f = freq/samplerate/2.;
   for ( int8_t n=0; n<=5; n++)
   { bq[n].freq = f ;
     switch (bq[n].filtertype) {
@@ -319,15 +317,14 @@ void dsp_set_xoverfreq(uint8_t freqh, uint8_t freql) {
          for (uint8_t i = 0;i <=4 ;i++ )
          {  printf("%.6f ",bq[n].coeffs[i]);  }
          printf("\n");
-
          dsps_biquad_gen_lpf_f32( bq[n].coeffs, bq[n].freq, bq[n].q );
          for (uint8_t i = 0;i <=4 ;i++ )
          {  printf("%.6f ",bq[n].coeffs[i]);  }
          printf("%f \n",bq[n].freq);
          break;
       case HPF:
-        dsps_biquad_gen_hpf_f32( bq[n].coeffs, bq[n].freq, bq[n].q );
-        break;
+         dsps_biquad_gen_hpf_f32( bq[n].coeffs, bq[n].freq, bq[n].q );
+         break;
       default : break;
     }
   }
