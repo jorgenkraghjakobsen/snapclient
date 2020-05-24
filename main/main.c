@@ -273,12 +273,15 @@ static void http_get_task(void *pvParameters)
                 // TODO there should be a big circular buffer or something for this
                 return;
             }
-            //ESP_LOGI(TAG,"%d %d : %d %d : %d %d",base_message.size, base_message.refersTo,
-            //base_message.sent.sec,base_message.sent.usec,
-            //base_message.received.sec,base_message.received.usec);  
-            diff = (uint32_t)now.tv_usec-old_usec; 
+            diff = (int32_t)(base_message.sent.usec-now.tv_usec)/1000 ; 
             if (diff < 0)  
-            { diff = diff + 1000000; }    
+            { diff = diff + 1000; }    
+            //ESP_LOGI(TAG,"%d %d dif %d",base_message.sent.usec/1000,(int)now.tv_usec/1000,             
+            //                         (int32_t)(base_message.sent.usec-now.tv_usec)/1000 ) ;
+            
+            //diff = (uint32_t)now.tv_usec-old_usec; 
+            //if (diff < 0)  
+            //{ diff = diff + 1000000; }    
             //ESP_LOGI(TAG,"%d %d %d %d",base_message.size, (uint32_t)now.tv_usec, old_usec, diff);
             base_message.received.sec = now.tv_sec;
             base_message.received.usec = now.tv_usec;
@@ -392,7 +395,7 @@ static void http_get_task(void *pvParameters)
                     ESP_LOGI(TAG, "BaseTX     : %d %d ", base_message.sent.sec , base_message.sent.usec);
                     ESP_LOGI(TAG, "BaseRX     : %d %d ", base_message.received.sec , base_message.received.usec);
                     ESP_LOGI(TAG, "baseTX->RX : %d s ", (base_message.received.sec - base_message.sent.sec)/1000);
-                    ESP_LOGI(TAG, "baseTX->RX : %dms ", (base_message.received.usec - base_message.sent.usec)/1000);
+                    ESP_LOGI(TAG, "baseTX->RX : %d ms ", (base_message.received.usec - base_message.sent.usec)/1000);
                     ESP_LOGI(TAG, "Latency : %d.%d ", time_message.latency.sec,  time_message.latency.usec/1000);
                     // tv == server to client latency (s2c)
                     // time_message.latency == client to server latency(c2s)
@@ -464,6 +467,32 @@ static void http_get_task(void *pvParameters)
         ESP_LOGI(TAG, "Starting again!");
     }
 }
+static int sntp_synced = 0;
+
+void sntp_sync_time(struct timeval *tv_ntp) {
+  if ((sntp_synced%10) == 0) {
+    settimeofday(tv_ntp,NULL); 
+    sntp_synced++;
+    ESP_LOGI(TAG,"SNTP time set from server number :%d",sntp_synced);
+    return;   
+  }
+  sntp_synced++;      
+  struct timeval tv_esp;
+  gettimeofday(&tv_esp, NULL);
+  //ESP_LOGI(TAG,"SNTP diff  s: %ld , %ld ", tv_esp.tv_sec , tv_ntp->tv_sec);
+  ESP_LOGI(TAG,"SNTP diff us: %ld , %ld ", tv_esp.tv_usec , tv_ntp->tv_usec);
+  ESP_LOGI(TAG,"SNTP diff us: %.2f", (double)((tv_esp.tv_usec - tv_ntp->tv_usec)/1000.0));
+    
+}
+
+void sntp_cb(struct timeval *tv)
+{   struct tm timeinfo = { 0 };
+    time_t now = tv->tv_sec;  
+    localtime_r(&now, &timeinfo);
+    char strftime_buf[64];
+    strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
+    ESP_LOGI(TAG, "sntp_cb called :%s", strftime_buf); 
+}
 
 void set_time_from_sntp() {
     xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT,
@@ -474,9 +503,11 @@ void set_time_from_sntp() {
     sntp_setoperatingmode(SNTP_OPMODE_POLL);
     sntp_setservername(0, "europe.pool.ntp.org");
 	sntp_init();
+    sntp_set_time_sync_notification_cb(sntp_cb);
+    setenv("TZ", "UTC-2", 1);
+    tzset();
 
-    // wait for time to be set
-    time_t now = 0;
+    /*time_t now = 0;
     struct tm timeinfo = { 0 };
     int retry = 0;
     const int retry_count = 10;
@@ -486,15 +517,11 @@ void set_time_from_sntp() {
         time(&now);
         localtime_r(&now, &timeinfo);
     }
-
     char strftime_buf[64];
-    //setenv("TZ", "UTC+2", 1);
-    //tzset();
-
-    // Set timezone to Eastern Standard Time and print local time
-    //localtime_r(&now, &timeinfo);
+    
     strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
     ESP_LOGI(TAG, "The current date/time in UTC is: %s", strftime_buf);
+    */
 }
 
 void app_main(void)

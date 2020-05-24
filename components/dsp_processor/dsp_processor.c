@@ -29,9 +29,10 @@ void setup_dsp_i2s(uint32_t sample_rate, bool slave_i2s)
     .sample_rate = sample_rate,
     .bits_per_sample = 32,
     .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,                           // 2-channels
-    .communication_format = I2S_COMM_FORMAT_I2S_MSB,
+    .communication_format = I2S_COMM_FORMAT_I2S | I2S_COMM_FORMAT_I2S_MSB,
     .dma_buf_count = 8, 
     .dma_buf_len = 480, 
+    .intr_alloc_flags = 1,                                                  //Default interrupt priority
     .use_apll = true,
     .fixed_mclk = 0,
     .tx_desc_auto_clear = true                                              // Auto clear tx descriptor on underflow
