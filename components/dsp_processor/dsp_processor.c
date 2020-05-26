@@ -102,7 +102,7 @@ static void dsp_i2s_task_handler(void *arg)
     cnt++;
     vRingbufferGetInfo(s_ringbuf_i2s, &freeBuffer, &rbuf, &wbuf, NULL, &inBuffer ); 
     rwdif = (uint32_t)(wbuf-rbuf); 
-    if (rwdif < 60000) { vTaskDelay(1); }  
+    if (rwdif < 60000) { vTaskDelay(2); }  
     audio = (uint8_t *)xRingbufferReceiveUpTo(s_ringbuf_i2s, &chunk_size, (portTickType)portMAX_DELAY,960);
     //audio = (uint8_t *)xRingbufferReceive(s_ringbuf_i2s, &chunk_size, (portTickType)portMAX_DELAY);
     if (chunk_size !=0 ){
