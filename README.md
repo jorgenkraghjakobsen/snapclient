@@ -18,7 +18,7 @@ Clone this repo:
 
 Update third party code: 
 
-git submodule update --init
+    git submodule update --init
 
 Configure to match your setup: 
   - Wifi network name and password
@@ -26,7 +26,7 @@ Configure to match your setup:
 
 Build, compile and flash:
 
-idf.py build flash monitor 
+    idf.py build flash monitor 
 
 ## Test 
 Setup a snapcast server on your network 
@@ -48,7 +48,10 @@ Test the server config on other knowen platform
 Android : snapclient from the app play store 
 
 
-## Task list 
+## Task list
+- [ ] Fix to alinge with above 
+ * kconfig
+ * add codec description 
 - [ ] Integrate ESP wifi provision 
 - [ ] Find and connect to Avahi broadcasted Snapcast server name
 - [ ] Add a client command interface layer like volume/mute control 
