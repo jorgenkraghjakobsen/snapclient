@@ -53,6 +53,12 @@ Android : snapclient from the app play store
  * kconfig
  * add codec description 
 - [ ] Integrate ESP wifi provision 
-- [ ] Find and connect to Avahi broadcasted Snapcast server name
+- [ok] Find and connect to Avahi broadcasted Snapcast server name
 - [ ] Add a client command interface layer like volume/mute control 
 - [ ] Build a ESP-ADF branch  
+
+## Minor task 
+- Propergate mute/unute from server message to DSP backend mute control. 
+  - soft mute - play sample in buffer with decresing volume 
+  - hard mute - pass on zero at the DSP hackend    
+- Startup: do not start parsing on samples to codec before sample ring buffer hits requested buffer size. 
