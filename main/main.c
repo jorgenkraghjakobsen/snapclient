@@ -21,6 +21,7 @@
 #include "lwip/sys.h"
 #include "lwip/netdb.h"
 #include "lwip/dns.h"
+#include "mdns.h"
 #include "esp_sntp.h"
 #include "opus.h"
 #include "driver/i2s.h"
@@ -32,6 +33,7 @@
 #include <sys/time.h>
 
 xQueueHandle i2s_queue;
+uint32_t buffer_ms = 400; 
 
 /* The examples use simple WiFi configuration that you can set via
    'make menuconfig'.
@@ -43,7 +45,8 @@ xQueueHandle i2s_queue;
 #define HOST "192.168.1.158"
 #define PORT 1704
 #define BUFF_LEN 4000
-
+unsigned int addr; 
+uint32_t port = 0; 
 /* Logging tag */
 static const char *TAG = "SNAPCAST";
 
@@ -138,6 +141,66 @@ void wifi_init_sta(void)
     //vEventGroupDelete(s_wifi_event_group);
 }
 
+static const char * if_str[] = {"STA", "AP", "ETH", "MAX"};
+static const char * ip_protocol_str[] = {"V4", "V6", "MAX"};
+
+void mdns_print_results(mdns_result_t * results){
+    mdns_result_t * r = results;
+    mdns_ip_addr_t * a = NULL;
+    int i = 1, t;
+    while(r){
+        printf("%d: Interface: %s, Type: %s\n", i++, if_str[r->tcpip_if], ip_protocol_str[r->ip_protocol]);
+        if(r->instance_name){
+            printf("  PTR : %s\n", r->instance_name);
+        }
+        if(r->hostname){
+            printf("  SRV : %s.local:%u\n", r->hostname, r->port);
+        }
+        if(r->txt_count){
+            printf("  TXT : [%u] ", r->txt_count);
+            for(t=0; t<r->txt_count; t++){
+                printf("%s=%s; ", r->txt[t].key, r->txt[t].value);
+            }
+            printf("\n");
+        }
+        a = r->addr;
+        while(a){
+            if(a->addr.type == IPADDR_TYPE_V6){
+                printf("  AAAA: " IPV6STR "\n", IPV62STR(a->addr.u_addr.ip6));
+            } else {
+                printf("  A   : " IPSTR "\n", IP2STR(&(a->addr.u_addr.ip4)));
+            }
+            a = a->next;
+        }
+        r = r->next;
+    }
+
+}
+void find_mdns_service(const char * service_name, const char * proto)
+{
+    ESP_LOGI(TAG, "Query PTR: %s.%s.local", service_name, proto);
+
+    mdns_result_t * r = NULL;
+    esp_err_t err = mdns_query_ptr(service_name, proto, 3000, 20,  &r);
+    if(err){
+        ESP_LOGE(TAG, "Query Failed");
+        return;
+    }
+    if(!r){
+        ESP_LOGW(TAG, "No results found!");
+        return;
+    }
+
+    if(r->instance_name){
+            printf("  PTR : %s\n", r->instance_name);
+    }
+    if(r->hostname){
+            printf("  SRV : %s.local:%u\n", r->hostname, r->port);
+      port = r->port;
+    }
+    mdns_query_results_free(r);
+}
+
 static void http_get_task(void *pvParameters)
 {
     struct sockaddr_in servaddr;
@@ -177,9 +240,29 @@ static void http_get_task(void *pvParameters)
                             false, true, portMAX_DELAY);
         ESP_LOGI(TAG, "Connected to AP");
 
+        // Find snapcast server 
+        // Connect to first snapcast server found
+        ESP_LOGI(TAG, "Enable mdns") ;
+        mdns_init();
+        mdns_result_t * r = NULL;
+        esp_err_t err = 0;
+        while ( !r || err )
+        {  ESP_LOGI(TAG, "Lookup snapcast service on netowork");
+           esp_err_t err = mdns_query_ptr("_snapcast", "_tcp", 3000, 20,  &r);
+           if(err){
+             ESP_LOGE(TAG, "Query Failed");
+           }
+           if(!r){
+             ESP_LOGW(TAG, "No results found!");
+           }
+           vTaskDelay(1000/portTICK_PERIOD_MS); 
+        } 
+        ESP_LOGI(TAG,"Found %08x", r->addr->addr.u_addr.ip4.addr);
+        
         servaddr.sin_family = AF_INET;
-        servaddr.sin_addr.s_addr = inet_addr(HOST);
-        servaddr.sin_port = htons(PORT);
+        servaddr.sin_addr.s_addr = r->addr->addr.u_addr.ip4.addr;         // inet_addr("192.168.1.158");
+        servaddr.sin_port = htons(r->port);
+        mdns_query_results_free(r);
 
         sockfd = socket(AF_INET, SOCK_STREAM, 0);
         if(sockfd < 0) {
@@ -377,7 +460,12 @@ static void http_get_task(void *pvParameters)
                         ESP_LOGI(TAG, "Failed to read server settings: %d\r\n", result);
                         return;
                     }
-
+                    // log mute state, buffer, latency
+                    buffer_ms = server_settings_message.buffer_ms; 
+                    ESP_LOGI(TAG, "Buffer length:  %d", server_settings_message.buffer_ms);
+                    ESP_LOGI(TAG, "Ringbuffer size:%d", server_settings_message.buffer_ms*48*4);
+                    ESP_LOGI(TAG, "Latency:        %d", server_settings_message.latency);
+                    ESP_LOGI(TAG, "Mute:           %d", server_settings_message.muted);
                     ESP_LOGI(TAG, "Setting volume: %d", server_settings_message.volume); 
                     // TODO abstract volume setting for various output 
                     uint8_t cmd[4];
@@ -552,7 +640,6 @@ void app_main(void)
     printf("Called\n");
 
     xTaskCreatePinnedToCore(&http_get_task, "http_get_task", 3*4096, NULL, 5, NULL, 0);
-    printf("Called http\n");
     while (1) {
         //audio_event_iface_msg_t msg;
         vTaskDelay(2000/portTICK_PERIOD_MS);

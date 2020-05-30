@@ -16,7 +16,7 @@
 static xTaskHandle s_dsp_i2s_task_handle = NULL;
 static RingbufHandle_t s_ringbuf_i2s = NULL;
 extern xQueueHandle i2s_queue;
-
+extern uint32_t buffer_ms;  
 uint dspFlow = dspfStereo;
 
 uint8_t muteCH[4];
@@ -97,19 +97,39 @@ static void dsp_i2s_task_handler(void *arg)
   muteCH[1] = 0;
   muteCH[2] = 0;
   muteCH[3] = 0;
-  uint32_t inBuffer,freeBuffer,wbuf,rbuf,rwdif ; 
+  uint32_t inBuffer,freeBuffer,wbuf,rbuf ;
+  int32_t rwdif;
+  static int32_t avgcnt = 0;
+  uint32_t avgcntlen = 64;  // x 960/4*1/fs = 320ms @48000 kHz     
+  uint32_t avgarray[128];
+  uint32_t sum; 
+  float avg ; 
   for (;;) {
     cnt++;
     vRingbufferGetInfo(s_ringbuf_i2s, &freeBuffer, &rbuf, &wbuf, NULL, &inBuffer ); 
-    rwdif = (uint32_t)(wbuf-rbuf); 
-    if (rwdif < 60000) { vTaskDelay(2); }  
+    
+    if (avgcnt >= avgcntlen) { avgcnt = 0; }
+    avgarray[avgcnt++] = inBuffer; 
+    sum = 0;
+    for (int n = 0; n < avgcntlen ; n++) 
+    { sum = sum + avgarray[n];     
+    }
+    avg = sum / avgcntlen;    
+    
+    rwdif = (rbuf-wbuf);
+    if (rwdif < 0 ) {
+      rwdif = rwdif + 81920; 
+    }
+    
+    
+    if (inBuffer < (buffer_ms*48*4)) {vTaskDelay(1); }  
     audio = (uint8_t *)xRingbufferReceiveUpTo(s_ringbuf_i2s, &chunk_size, (portTickType)portMAX_DELAY,960);
     //audio = (uint8_t *)xRingbufferReceive(s_ringbuf_i2s, &chunk_size, (portTickType)portMAX_DELAY);
     if (chunk_size !=0 ){
         int16_t len = chunk_size/4;
-        if (cnt%200 == 0)
-        { ESP_LOGI("I2S", "Chunk :%d (%d/%d) %d ",chunk_size, inBuffer,freeBuffer,rwdif );
-          xRingbufferPrintInfo(s_ringbuf_i2s);
+        if (cnt%200 < 16)
+        { ESP_LOGI("I2S", "Chunk :%d (%d/%d) %d %.0f",chunk_size, inBuffer, freeBuffer,rwdif, avg );
+          //xRingbufferPrintInfo(s_ringbuf_i2s);
         }
         uint8_t *data_ptr = audio;
 
@@ -239,8 +259,9 @@ static void dsp_i2s_task_handler(void *arg)
     }
   }
 }
+// buffer size must hold 400ms-1000ms  // for 2ch16b48000 that is 76800 - 192000 or 75-188 x 1024    
 
-#define BUFFER_SIZE  80*1024 
+#define BUFFER_SIZE  192*1024  
 #define BUFFER_TYPE RINGBUF_TYPE_BYTEBUF
 
 void dsp_i2s_task_init(uint32_t sample_rate,bool slave)
