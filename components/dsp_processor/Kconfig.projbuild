@@ -1,6 +1,12 @@
 # Config file for ESP32 DSP Processor 
 
-menu "ESP32 audio I2S config"
+menu "ESP32 audio buffer and I2S pin config" 
+    config USE_PSRAM
+        bool "Use PSRAM"
+        default true
+        help 
+            Need wrover class modules with large SPRAM to have required buffers for Snapcast network delay
+
     config MASTER_I2S_BCK_PIN
         int "Master i2s bck"
         default 23

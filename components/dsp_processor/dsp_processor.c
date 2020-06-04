@@ -16,10 +16,12 @@
 static xTaskHandle s_dsp_i2s_task_handle = NULL;
 static RingbufHandle_t s_ringbuf_i2s = NULL;
 extern xQueueHandle i2s_queue;
+
 extern uint32_t buffer_ms;  
+
+extern uint8_t muteCH[4];
 uint dspFlow = dspfStereo;
 
-uint8_t muteCH[4];
 ptype_t bq[6];
 
 void setup_dsp_i2s(uint32_t sample_rate, bool slave_i2s)
@@ -101,11 +103,19 @@ static void dsp_i2s_task_handler(void *arg)
   int32_t rwdif;
   static int32_t avgcnt = 0;
   uint32_t avgcntlen = 64;  // x 960/4*1/fs = 320ms @48000 kHz     
-  uint32_t avgarray[128];
+  uint32_t avgarray[128] = {0};
   uint32_t sum; 
   float avg ; 
   for (;;) {
+    // Condition                                     state   Action    
+    // Buffer is empty - because not being filled    Stopped  Wait 
+    // Buffer is increasing and below target         Filling  Wait 
+    // Buffer above target                           Playing  Consume from buffer     
+    // Buffer is below target                        Playing  Short delay
+     
     cnt++;
+    audio = (uint8_t *)xRingbufferReceiveUpTo(s_ringbuf_i2s, &chunk_size,(portTickType) 20 ,960);  // 200 ms timeout 
+    
     vRingbufferGetInfo(s_ringbuf_i2s, &freeBuffer, &rbuf, &wbuf, NULL, &inBuffer ); 
     
     if (avgcnt >= avgcntlen) { avgcnt = 0; }
@@ -116,19 +126,25 @@ static void dsp_i2s_task_handler(void *arg)
     }
     avg = sum / avgcntlen;    
     
-    rwdif = (rbuf-wbuf);
-    if (rwdif < 0 ) {
-      rwdif = rwdif + 81920; 
-    }
-    
+    #ifndef CONFIG_USE_PSRAM 
+      buffer_ms = 150;
+    #endif 
     
     if (inBuffer < (buffer_ms*48*4)) {vTaskDelay(1); }  
-    audio = (uint8_t *)xRingbufferReceiveUpTo(s_ringbuf_i2s, &chunk_size, (portTickType)portMAX_DELAY,960);
+    
+    //audio = (uint8_t *)xRingbufferReceiveUpTo(s_ringbuf_i2s, &chunk_size,(portTickType) 20 ,960);  // 200 ms timeout 
+    
     //audio = (uint8_t *)xRingbufferReceive(s_ringbuf_i2s, &chunk_size, (portTickType)portMAX_DELAY);
-    if (chunk_size !=0 ){
-        int16_t len = chunk_size/4;
+    if (chunk_size == 0) 
+    { printf("wait ... buffer : %d\n",inBuffer);
+    } 
+    //else if (inBuffer < (buffer_ms*48*4)) 
+    //{ printf("Buffering ...  buffer : %d\n",inBuffer); 
+    //}
+    else 
+    {   int16_t len = chunk_size/4;
         if (cnt%200 < 16)
-        { ESP_LOGI("I2S", "Chunk :%d (%d/%d) %d %.0f",chunk_size, inBuffer, freeBuffer,rwdif, avg );
+        { ESP_LOGI("I2S", "Chunk :%d %d %.0f",chunk_size, inBuffer, avg );
           //xRingbufferPrintInfo(s_ringbuf_i2s);
         }
         uint8_t *data_ptr = audio;
@@ -262,18 +278,22 @@ static void dsp_i2s_task_handler(void *arg)
 // buffer size must hold 400ms-1000ms  // for 2ch16b48000 that is 76800 - 192000 or 75-188 x 1024    
 
 #define BUFFER_SIZE  192*1024  
-#define BUFFER_TYPE RINGBUF_TYPE_BYTEBUF
 
 void dsp_i2s_task_init(uint32_t sample_rate,bool slave)
 { setup_dsp_i2s(sample_rate,slave);
-  StaticRingbuffer_t *buffer_struct =  (StaticRingbuffer_t *)heap_caps_malloc(sizeof(StaticRingbuffer_t), MALLOC_CAP_SPIRAM);
-  printf("Buffer_struct ok\n");
+  #ifdef CONFIG_USE_PSRAM
+   printf("Setup ringbuffer using PSRAM \n");
+   StaticRingbuffer_t *buffer_struct =  (StaticRingbuffer_t *)heap_caps_malloc(sizeof(StaticRingbuffer_t), MALLOC_CAP_SPIRAM);
+   printf("Buffer_struct ok\n");
 
-  uint8_t *buffer_storage = (uint8_t *)heap_caps_malloc(sizeof(uint8_t)*BUFFER_SIZE, MALLOC_CAP_SPIRAM);
-  printf("Buffer_stoarge ok\n");
-  s_ringbuf_i2s = xRingbufferCreateStatic(BUFFER_SIZE, BUFFER_TYPE, buffer_storage, buffer_struct);
-  printf("Ringbuf ok\n"); 
-  //s_ringbuf_i2s = xRingbufferCreate(32*1024,RINGBUF_TYPE_BYTEBUF);  // 8*1024
+   uint8_t *buffer_storage = (uint8_t *)heap_caps_malloc(sizeof(uint8_t)*BUFFER_SIZE, MALLOC_CAP_SPIRAM);
+   printf("Buffer_stoarge ok\n");
+   s_ringbuf_i2s = xRingbufferCreateStatic(BUFFER_SIZE, RINGBUF_TYPE_BYTEBUF, buffer_storage, buffer_struct);
+   printf("Ringbuf ok\n"); 
+  #else 
+   printf("Setup ringbuffer using internal ram - only space for 150ms - Snapcast buffer_ms parameter ignored \n");
+   s_ringbuf_i2s = xRingbufferCreate(32*1024,RINGBUF_TYPE_BYTEBUF); 
+  #endif 
   if (s_ringbuf_i2s == NULL) { printf("nospace for ringbuffer\n"); return; }
   printf("Ringbuffer ok\n");
   xTaskCreate(dsp_i2s_task_handler, "DSP_I2S", 48*1024, NULL, 6, &s_dsp_i2s_task_handle);

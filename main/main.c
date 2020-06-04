@@ -34,6 +34,7 @@
 
 xQueueHandle i2s_queue;
 uint32_t buffer_ms = 400; 
+uint8_t  muteCH[4] = {0};
 
 /* The examples use simple WiFi configuration that you can set via
    'make menuconfig'.
@@ -467,6 +468,10 @@ static void http_get_task(void *pvParameters)
                     ESP_LOGI(TAG, "Latency:        %d", server_settings_message.latency);
                     ESP_LOGI(TAG, "Mute:           %d", server_settings_message.muted);
                     ESP_LOGI(TAG, "Setting volume: %d", server_settings_message.volume); 
+                    muteCH[0] = server_settings_message.muted;
+                    muteCH[1] = server_settings_message.muted;
+                    muteCH[2] = server_settings_message.muted;
+                    muteCH[3] = server_settings_message.muted;
                     // TODO abstract volume setting for various output 
                     uint8_t cmd[4];
                     cmd[0] = 128-server_settings_message.volume  ;
