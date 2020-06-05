@@ -5,10 +5,27 @@
 ## Feature list 
 - Opus decoding currently supported
 - Wifi connection hardcoded in app   
-- Snapcast server address hardcoded  
+- Auto connect to snapcast server on network  
 - Buffers up to 150 ms on Wroom modules 
 - Buffers more then enough on Wrover modules 
-  
+- Multiroom sync delay controlled from Snapcast server
+
+## Description 
+I have continued the work from @badaix and @bridadan towards a ESP32 Snapcast client. Currently it support basic features like multirum sync, network controlled volume and mute. For now it only support Opus 16bit/48Khz audio streams and the synchornization part is still being worked on. 
+
+Please check out the task list and feel free to fill in.
+
+I have used the Infineon MA12070P Multi level Class D combined coded/amp due to its superior power effecienty on a high supply rail. It allow me to battery power system with good play back time at normal listen level and stil have the power to start the party.
+
+The codebase is split into components and build on vanilla ESP-IDF. I stil have some refactoring on the todo list as the concept has started to settle and allow for new features can be added in a stuctured manner. In the code you will find parts that are only partly related features and still not on the task list. 
+Components 
+ - MerusAudio       : Low level communication interface MA12070P 
+ - opus             : Opus audio coder/decoder full submodule   
+ - rtprx            : Alternative RTP audio client UDP low latency also opus based
+ - lightsnapcast    : Port of @bridadan scapcast packages decode library
+ - libbuffer        : Generic buffer abstraction
+ - esp-dsp          : Port of ESP-DSP library - stripped version - submodule considered 
+ - dsp_processor    : Audio Processor and I2S low level interface including sync buffer
 
 ## Build 
 
@@ -49,7 +66,7 @@ Android : snapclient from the app play store
 
 
 ## Task list
-- [ ] Fix to alinge with above 
+- [ok] Fix to alinge with above 
  * kconfig
  * add codec description 
 - [ ] Integrate ESP wifi provision 
@@ -58,7 +75,9 @@ Android : snapclient from the app play store
 - [ ] Build a ESP-ADF branch  
 
 ## Minor task 
-- Propergate mute/unute from server message to DSP backend mute control. 
-  - soft mute - play sample in buffer with decresing volume 
-  - hard mute - pass on zero at the DSP hackend    
-- Startup: do not start parsing on samples to codec before sample ring buffer hits requested buffer size. 
+- [ ] Propergate mute/unute from server message to DSP backend mute control. 
+  - [ ] soft mute - play sample in buffer with decresing volume 
+  - [ok] hard mute - pass on zero at the DSP hackend    
+- [ ] Startup: do not start parsing on samples to codec before sample ring buffer hits requested buffer size. 
+  - [ok] Start from empty buffer
+  
