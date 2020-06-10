@@ -10,16 +10,19 @@
 #include "dsps_biquad_gen.h"
 #include "dsps_biquad.h"
 //#include "websocket_if.h"
-
 #include "dsp_processor.h"
+
+
+uint32_t bits_per_sample = CONFIG_BITS_PER_SAMPLE; 
 
 static xTaskHandle s_dsp_i2s_task_handle = NULL;
 static RingbufHandle_t s_ringbuf_i2s = NULL;
+
 extern xQueueHandle i2s_queue;
 
 extern uint32_t buffer_ms;  
-
 extern uint8_t muteCH[4];
+
 uint dspFlow = dspfStereo;
 
 ptype_t bq[6];
@@ -29,7 +32,7 @@ void setup_dsp_i2s(uint32_t sample_rate, bool slave_i2s)
   i2s_config_t i2s_config0 = {
     .mode = I2S_MODE_MASTER | I2S_MODE_TX,                                  // Only TX
     .sample_rate = sample_rate,
-    .bits_per_sample = 32,
+    .bits_per_sample = bits_per_sample,
     .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,                           // 2-channels
     .communication_format = I2S_COMM_FORMAT_I2S | I2S_COMM_FORMAT_I2S_MSB,
     .dma_buf_count = 8, 
@@ -46,7 +49,7 @@ void setup_dsp_i2s(uint32_t sample_rate, bool slave_i2s)
     .data_out_num = CONFIG_MASTER_I2S_DATAOUT_PIN,
     .data_in_num  = -1                                                       //Not used
   };
-
+  
   i2s_driver_install(0, &i2s_config0, 7, &i2s_queue);
   i2s_zero_dma_buffer(0);
   i2s_set_pin(0, &pin_config0);
@@ -54,7 +57,7 @@ void setup_dsp_i2s(uint32_t sample_rate, bool slave_i2s)
   i2s_config_t i2s_config1 = {
     .mode = I2S_MODE_SLAVE | I2S_MODE_TX,                                   // Only TX - Slave channel 
     .sample_rate = sample_rate,
-    .bits_per_sample = 32,
+    .bits_per_sample = bits_per_sample,
     .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,                           // 2-channels
     .communication_format = I2S_COMM_FORMAT_I2S_MSB,
     .dma_buf_count = 8, 
@@ -169,7 +172,11 @@ static void dsp_i2s_task_handler(void *arg)
                 audio[i*4+2] = (muteCH[1] == 1)? 0 : audio[i*4+2];
                 audio[i*4+3] = (muteCH[1] == 1)? 0 : audio[i*4+3];
               }
-              i2s_write_expand(0, (char*)audio, chunk_size,16,32, &bytes_written, portMAX_DELAY);
+              if (bits_per_sample == 16) { 
+                i2s_write(0,(char*)audio,  chunk_size, &bytes_written, portMAX_DELAY); 
+              } else 
+              { i2s_write_expand(0, (char*)audio, chunk_size,16,32, &bytes_written, portMAX_DELAY);
+              }
             }
             break;
           case dspfBiamp :

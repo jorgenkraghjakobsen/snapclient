@@ -15,6 +15,11 @@
 #include "esp_log.h"
 #include "nvs_flash.h"
 
+//ESP-IDF stuff
+#include "board.h"
+//#include "audio_element.h"
+#include "es8388.h"
+
 
 #include "lwip/err.h"
 #include "lwip/sockets.h"
@@ -354,7 +359,6 @@ static void http_get_task(void *pvParameters)
             result = base_message_deserialize(&base_message, buff, size);
             if (result) {
                 ESP_LOGI(TAG, "Failed to read base message: %d\r\n", result);
-                // TODO there should be a big circular buffer or something for this
                 return;
             }
             diff = (int32_t)(base_message.sent.usec-now.tv_usec)/1000 ; 
@@ -395,16 +399,21 @@ static void http_get_task(void *pvParameters)
                     }
 
                     ESP_LOGI(TAG, "Received codec header message\r\n");
-
+                    
                     size = codec_header_message.size;
                     start = codec_header_message.payload;
-                    ESP_LOGI(TAG, "Codec : %s , Size: %d \n",codec_header_message.codec,size);
-
+                    if (strcmp(codec_header_message.codec,"opus") == 0) { 
+                       ESP_LOGI(TAG, "Codec : %s , Size: %d \n",codec_header_message.codec,size);
+                    } else 
+                    { 
+                       ESP_LOGI(TAG, "Codec : %s not supported\n",codec_header_message.codec);
+                       ESP_LOGI(TAG, "Change encoder codec to opus in /etc/snapserver.conf on server\n");
+                       return;  
+                    }
                     uint32_t rate;
                     memcpy(&rate, start+4,sizeof(rate));
                     uint16_t bits;
                     memcpy(&bits, start+8,sizeof(bits));
-                    //uint16_t channels;
                     memcpy(&channels, start+10,sizeof(channels));
                     ESP_LOGI(TAG, "Opus sampleformat: %d:%d:%d\n",rate,bits,channels);
                     int error = 0;
@@ -628,7 +637,12 @@ void app_main(void)
     //setup_ma120();
     //ma120_setup_audio(0x20);
 
-    setup_ma120x0();
+    ESP_LOGI(TAG, "[ 2 ] Start codec chip");
+    audio_board_handle_t board_handle = audio_board_init();
+    audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_BOTH, AUDIO_HAL_CTRL_START);
+    es8388_read_all();
+    i2s_mclk_gpio_select(0,0);
+    //setup_ma120x0();
 
     //setup_rtp_i2s();
 

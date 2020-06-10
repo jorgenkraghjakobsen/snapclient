@@ -15,7 +15,9 @@ I have continued the work from @badaix and @bridadan towards a ESP32 Snapcast cl
 
 Please check out the task list and feel free to fill in.
 
-I have used the Infineon MA12070P Multi level Class D combined coded/amp due to its superior power effecienty on a high supply rail. It allow me to battery power system with good play back time at normal listen level and stil have the power to start the party.
+I have used the Infineon MA12070P Multi level Class D combined coded/amp due to its superior power effecienty on a high supply rail. It allows battery power system with good playback time at normal listen level and stil have the power to start the party.
+
+### Codebase
 
 The codebase is split into components and build on vanilla ESP-IDF. I stil have some refactoring on the todo list as the concept has started to settle and allow for new features can be added in a stuctured manner. In the code you will find parts that are only partly related features and still not on the task list. 
 Components 
@@ -27,6 +29,21 @@ Components
  - esp-dsp          : Port of ESP-DSP library - stripped version - submodule considered 
  - dsp_processor    : Audio Processor and I2S low level interface including sync buffer
 
+### Hardware 
+    -   ESP pinout                         MA12070P 
+    ------------------------------------------------------
+                              ->            I2S_BCK        Audio Clock 3.072 MHz    
+                              ->            I2S_WS         Frame Word Select or L/R 
+                              ->            GND            Ground       
+                              ->            I2S_DI         Audio data 24bits LSB first 
+                              ->            MCLK           Master clk connect to I2S_BCK
+                              ->            I2C_SCL        I2C clock
+                              ->            I2C_SDA        I2C Data
+                              ->            GND            Ground
+                              ->            NENABLE        Amplifier Enable active low                         
+                              ->            NMUTE          Amplifier Mute active low
+                              
+                               
 ## Build 
 
 Clone this repo: 
