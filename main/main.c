@@ -17,7 +17,6 @@
 
 //ESP-IDF stuff
 #include "board.h"
-//#include "audio_element.h"
 #include "es8388.h"
 
 

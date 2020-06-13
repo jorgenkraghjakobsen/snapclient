@@ -197,7 +197,11 @@ static void dsp_i2s_task_handler(void *arg)
                 dsp_audio[i*4+2] = (valint[1] & 0xff);
                 dsp_audio[i*4+3] = ((valint[1] & 0xff00)>>8);
               }
-              i2s_write_expand(0, (char*)dsp_audio, chunk_size,16,32, &bytes_written, portMAX_DELAY);
+              if (bits_per_sample == 16) { 
+                i2s_write(0,(char*)audio,  chunk_size, &bytes_written, portMAX_DELAY); 
+              } else 
+              { i2s_write_expand(0, (char*)audio, chunk_size,16,32, &bytes_written, portMAX_DELAY);
+              }
             }
             break;
 
