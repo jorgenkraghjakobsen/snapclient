@@ -39,7 +39,7 @@
 xQueueHandle i2s_queue;
 uint32_t buffer_ms = 400; 
 uint8_t  muteCH[4] = {0};
-
+audio_board_handle_t board_handle = NULL; 
 /* The examples use simple WiFi configuration that you can set via
    'make menuconfig'.
    If you'd rather not, just change the below entries to strings with
@@ -480,11 +480,14 @@ static void http_get_task(void *pvParameters)
                     muteCH[1] = server_settings_message.muted;
                     muteCH[2] = server_settings_message.muted;
                     muteCH[3] = server_settings_message.muted;
-                    // TODO abstract volume setting for various output 
-                    uint8_t cmd[4];
-                    cmd[0] = 128-server_settings_message.volume  ;
-                    cmd[1] = cmd[0];
-                    ma_write(0x20,1,0x0040,cmd,1);
+                    
+                    // Volume setting using ADF HAL abstraction 
+                    audio_hal_set_volume(board_handle->audio_hal,server_settings_message.volume);
+                    // move this implemntation to a Merus Audio hal 
+                    //uint8_t cmd[4];
+                    //cmd[0] = 128-server_settings_message.volume  ;
+                    //cmd[1] = cmd[0];
+                    //ma_write(0x20,1,0x0040,cmd,1);
                 break;
 
                 case SNAPCAST_MESSAGE_TIME:
@@ -637,12 +640,11 @@ void app_main(void)
     //ma120_setup_audio(0x20);
 
     ESP_LOGI(TAG, "[ 2 ] Start codec chip");
-    audio_board_handle_t board_handle = audio_board_init();
+    board_handle = audio_board_init();
     audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_BOTH, AUDIO_HAL_CTRL_START);
-    es8388_read_all();
     i2s_mclk_gpio_select(0,0);
-    //setup_ma120x0();
 
+    //setup_ma120x0();
     //setup_rtp_i2s();
 
     wifi_init_sta();
