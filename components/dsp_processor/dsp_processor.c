@@ -34,7 +34,7 @@ void setup_dsp_i2s(uint32_t sample_rate, bool slave_i2s)
     .sample_rate = sample_rate,
     .bits_per_sample = bits_per_sample,
     .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,                           // 2-channels
-    .communication_format = I2S_COMM_FORMAT_I2S | I2S_COMM_FORMAT_I2S_MSB,
+    .communication_format = I2S_COMM_FORMAT_I2S ,
     .dma_buf_count = 8, 
     .dma_buf_len = 480, 
     .intr_alloc_flags = 1,                                                  //Default interrupt priority
@@ -59,7 +59,7 @@ void setup_dsp_i2s(uint32_t sample_rate, bool slave_i2s)
     .sample_rate = sample_rate,
     .bits_per_sample = bits_per_sample,
     .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,                           // 2-channels
-    .communication_format = I2S_COMM_FORMAT_I2S_MSB,
+    .communication_format = I2S_COMM_FORMAT_I2S,
     .dma_buf_count = 8, 
     .dma_buf_len = 480, 
     .use_apll = true,
@@ -103,7 +103,7 @@ static void dsp_i2s_task_handler(void *arg)
   muteCH[2] = 0;
   muteCH[3] = 0;
   uint32_t inBuffer,freeBuffer,wbuf,rbuf ;
-  int32_t rwdif;
+  
   static int32_t avgcnt = 0;
   uint32_t avgcntlen = 64;  // x 960/4*1/fs = 320ms @48000 kHz     
   uint32_t avgarray[128] = {0};
@@ -150,8 +150,7 @@ static void dsp_i2s_task_handler(void *arg)
         { ESP_LOGI("I2S", "Chunk :%d %d %.0f",chunk_size, inBuffer, avg );
           //xRingbufferPrintInfo(s_ringbuf_i2s);
         }
-        uint8_t *data_ptr = audio;
-
+        
         /*for (uint16_t i=0;i<len;i++)
         {
           sbuffer0[i] = ((float) ((int16_t) (audio[i*4+1]<<8) + audio[i*4+0]))/32768;

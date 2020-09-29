@@ -63,7 +63,7 @@ void rtp_rx_task(void *pvParameters){
   static struct netbuf *buf;
   static uint32_t pkg = 0 ;
   static uint32_t pkgerror = 0;
-  err_t err, recv_err;
+  err_t err;
   uint16_t oldseq = 1;
   uint16_t first = 1; 
   conn = netconn_new(NETCONN_UDP);
@@ -73,7 +73,7 @@ void rtp_rx_task(void *pvParameters){
     netconn_listen(conn);
     printf("Net RTP will enter loopn\n");
     while (1) {
-      recv_err = netconn_recv(conn,&buf);
+      netconn_recv(conn,&buf);
       if (buf == NULL) 
       { printf("NETCONN RX error \n"); }
       pkg++;
@@ -145,7 +145,7 @@ void setup_rtp_i2s()
     .sample_rate = 48000,
     .bits_per_sample = 32,
     .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,                           //2-channels
-    .communication_format = I2S_COMM_FORMAT_I2S_MSB,  
+    .communication_format = I2S_COMM_FORMAT_I2S,  
     .dma_buf_count = 8,
     .dma_buf_len = 480,
     //.intr_alloc_flags = 1,                                                  //Default interrupt priority

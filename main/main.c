@@ -18,7 +18,7 @@
 //ESP-IDF stuff
 #include "board.h"
 #include "es8388.h"
-
+//#include "audio_hal.h"
 
 #include "lwip/err.h"
 #include "lwip/sockets.h"
@@ -113,7 +113,7 @@ void wifi_init_sta(void)
 
     wifi_config_t wifi_config = {
         .sta = {
-            .ssid = "drk-kontor",
+            .ssid = "drk-super",
             .password = "12341234"
         },
     };
@@ -564,11 +564,6 @@ static void http_get_task(void *pvParameters)
         }
         ESP_LOGI(TAG, "... done reading from socket\r\n");
         close(sockfd);
-        for(int countdown = 10; countdown >= 0; countdown--) {
-            ESP_LOGI(TAG, "%d... ", countdown);
-            vTaskDelay(1000 / portTICK_PERIOD_MS);
-        }
-        ESP_LOGI(TAG, "Starting again!");
     }
 }
 static int sntp_synced = 0;
@@ -643,6 +638,8 @@ void app_main(void)
     board_handle = audio_board_init();
     audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_BOTH, AUDIO_HAL_CTRL_START);
     i2s_mclk_gpio_select(0,0);
+    //audio_hal_set_volume(board_handle->audio_hal,40);
+                    
 
     //setup_ma120x0();
     //setup_rtp_i2s();
