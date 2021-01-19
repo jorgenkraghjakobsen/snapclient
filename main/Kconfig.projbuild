@@ -1,0 +1,58 @@
+menu "Wifi Configuration"
+
+    config ESP_WIFI_SSID
+        string "WiFi SSID"
+        default "myssid"
+        help
+            SSID (network name) for the example to connect to.
+
+    config ESP_WIFI_PASSWORD
+        string "WiFi Password"
+        default "mypassword"
+        help
+            WiFi password (WPA or WPA2) for the example to use.
+
+    config ESP_MAXIMUM_RETRY
+        int "Maximum retry"
+        default 5
+        help
+            Set the Maximum retry to avoid station reconnecting to the AP unlimited when the AP is really inexistent.
+endmenu
+
+menu "Snapserver Configuration"
+
+    config SNAPSERVER_HOST
+        string "Snapserver host"
+        default "192.168.1.158"
+        help
+            Host (ip or name) of snapserver to connect to.
+
+    config SNAPSERVER_PORT
+        int "Snapserver port"
+        default 1704
+        help
+            Port of the snapserver to connect to.
+
+    config SNAPCLIENT_BUFF_LEN
+        int "snapcast buffer len"
+        default 4000
+        help
+            Size of the snapclient buffer (in bytes).
+
+    config SNAPCLIENT_NAME
+        string "snapclient name"
+        default "esp-snapclient"
+        help
+            Name of the client to register the snapserver.
+endmenu
+
+
+menu "Misc Configuration"
+
+    config SNTP_TIMEZONE
+        string "SNTP timezone"
+        default "UTC-2"
+        help
+            Timezone used for the SNTP configuration.
+
+endmenu
