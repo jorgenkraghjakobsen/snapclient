@@ -26,7 +26,6 @@
 #include "lwip/netdb.h"
 #include "lwip/dns.h"
 #include "mdns.h"
-#include "esp_sntp.h"
 #include "opus.h"
 #include "driver/i2s.h"
 #include "rtprx.h"
@@ -53,12 +52,6 @@ audio_board_handle_t board_handle = NULL;
 #define SNAPCAST_SERVER_PORT      CONFIG_SNAPSERVER_PORT
 #define SNAPCAST_BUFF_LEN         CONFIG_SNAPCLIENT_BUFF_LEN
 #define SNAPCAST_CLIENT_NAME      CONFIG_SNAPCLIENT_NAME
-
-/* other parameters; configurable in menuconfig */
-#define SNTP_TIMEZONE      CONFIG_SNTP_TIMEZONE
-
-// is this used?
-#define HOST "192.168.1.158"
 
 unsigned int addr;
 uint32_t port = 1704;
@@ -545,62 +538,6 @@ static void http_get_task(void *pvParameters)
         close(sockfd);
     }
 }
-static int sntp_synced = 0;
-
-void sntp_sync_time(struct timeval *tv_ntp) {
-  if ((sntp_synced%10) == 0) {
-    settimeofday(tv_ntp,NULL);
-    sntp_synced++;
-    ESP_LOGI(TAG,"SNTP time set from server number :%d",sntp_synced);
-    return;
-  }
-  sntp_synced++;
-  struct timeval tv_esp;
-  gettimeofday(&tv_esp, NULL);
-  //ESP_LOGI(TAG,"SNTP diff  s: %ld , %ld ", tv_esp.tv_sec , tv_ntp->tv_sec);
-  ESP_LOGI(TAG,"SNTP diff us: %ld , %ld ", tv_esp.tv_usec , tv_ntp->tv_usec);
-  ESP_LOGI(TAG,"SNTP diff us: %.2f", (double)((tv_esp.tv_usec - tv_ntp->tv_usec)/1000.0));
-
-}
-
-void sntp_cb(struct timeval *tv)
-{   struct tm timeinfo = { 0 };
-    time_t now = tv->tv_sec;
-    localtime_r(&now, &timeinfo);
-    char strftime_buf[64];
-    strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
-    ESP_LOGI(TAG, "sntp_cb called :%s", strftime_buf);
-}
-
-void set_time_from_sntp() {
-    xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT,
-                        false, true, portMAX_DELAY);
-    //ESP_LOGI(TAG, "clock %");
-
-    ESP_LOGI(TAG, "Initializing SNTP");
-    sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    sntp_setservername(0, "europe.pool.ntp.org");
-	sntp_init();
-    sntp_set_time_sync_notification_cb(sntp_cb);
-    setenv("TZ", CONFIG_SNTP_TIMEZONE, 1);
-    tzset();
-
-    /*time_t now = 0;
-    struct tm timeinfo = { 0 };
-    int retry = 0;
-    const int retry_count = 10;
-    while(timeinfo.tm_year < (2016 - 1900) && ++retry < retry_count) {
-        ESP_LOGI(TAG, "Waiting for system time to be set... (%d/%d)", retry, retry_count);
-        vTaskDelay(2000 / portTICK_PERIOD_MS);
-        time(&now);
-        localtime_r(&now, &timeinfo);
-    }
-    char strftime_buf[64];
-
-    strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
-    ESP_LOGI(TAG, "The current date/time in UTC is: %s", strftime_buf);
-    */
-}
 
 void app_main(void)
 {
@@ -635,8 +572,6 @@ void app_main(void)
 			base_mac[0], base_mac[1], base_mac[2], base_mac[3], base_mac[4], base_mac[5]);
 
     vTaskDelay(5000/portTICK_PERIOD_MS);
-
-    set_time_from_sntp();
 
     xTaskCreatePinnedToCore(&http_get_task, "http_get_task", 3*4096, NULL, 5, NULL, 0);
     while (1) {
