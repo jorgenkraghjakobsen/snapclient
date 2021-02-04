@@ -390,7 +390,7 @@ static void http_get_task(void *pvParameters)
 						ESP_LOGI(TAG, "Failed to init opus coder");
 					}
 
-                    ESP_LOGI(TAG, "Initialized opus Decoder: %d", error);
+                    ESP_LOGI(TAG, "Initialized opus Decoder");
 
                     codec_header_message_free(&codec_header_message);
                     received_header = true;
