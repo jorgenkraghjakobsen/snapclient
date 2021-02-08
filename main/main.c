@@ -17,8 +17,6 @@
 
 //ESP-IDF stuff
 #include "board.h"
-#include "es8388.h"
-//#include "audio_hal.h"
 
 #include "lwip/err.h"
 #include "lwip/sockets.h"
@@ -182,17 +180,10 @@ static void http_get_task(void *pvParameters)
 
     last_time_sync.tv_sec = 0;
     last_time_sync.tv_usec = 0;
-    //uint32_t old_usec = 0;
-    int32_t diff = 0;
     id_counter = 0;
 
     OpusDecoder *decoder = NULL;
 
-    //int size = opus_decoder_get_size(2);
-    //int oe = 0;
-    //decoder = opus_decoder_create(48000,2,&oe);
-    //  int error = opus_decoder_init(decoder, 48000, 2);
-  	//printf("Initialized Decoder: %d", oe);
 	int16_t *audio = (int16_t *)malloc(960*2*sizeof(int16_t)); // 960*2: 20ms, 960*1: 10ms
     int16_t pcm_size = 120;
     uint16_t channels;
@@ -200,11 +191,6 @@ static void http_get_task(void *pvParameters)
     dsp_i2s_task_init(48000, false);
 
     while(1) {
-        /* Wait for the callback to set the CONNECTED_BIT in the
-           event group.
-        */
-        xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT,
-                            false, true, portMAX_DELAY);
         ESP_LOGI(TAG, "Connected to AP");
 
         // Find snapcast server
@@ -327,23 +313,12 @@ static void http_get_task(void *pvParameters)
                 ESP_LOGI(TAG, "Failed to read base message: %d\r\n", result);
                 return;
             }
-            diff = (int32_t)(base_message.sent.usec-now.tv_usec)/1000 ;
-            if (diff < 0)
-            { diff = diff + 1000; }
             //ESP_LOGI(TAG,"%d %d dif %d",base_message.sent.usec/1000,(int)now.tv_usec/1000,
             //                         (int32_t)(base_message.sent.usec-now.tv_usec)/1000 ) ;
 
-            //diff = (uint32_t)now.tv_usec-old_usec;
-            //if (diff < 0)
-            //{ diff = diff + 1000000; }
-            //ESP_LOGI(TAG,"%d %d %d %d",base_message.size, (uint32_t)now.tv_usec, old_usec, diff);
             base_message.received.sec = now.tv_sec;
             base_message.received.usec = now.tv_usec;
-            //ESP_LOGI(TAG,"%d %d : %d %d : %d %d",base_message.size, base_message.refersTo,
-            //base_message.sent.sec,base_message.sent.usec,
-            //base_message.received.sec,base_message.received.usec);
 
-            //old_usec = now.tv_usec;
             start = buff;
             size = 0;
             while (size < base_message.size) {
@@ -407,7 +382,7 @@ static void http_get_task(void *pvParameters)
                         return;
                     }
 
-                    //ESP_LOGI(TAG, "Received wire message\r\n");
+                    //ESP_LOGI(TAG, "Received wire message");
                     size = wire_chunk_message.size;
                     start = (wire_chunk_message.payload);
                     //ESP_LOGI(TAG, "size : %d\n",size);
@@ -428,6 +403,7 @@ static void http_get_task(void *pvParameters)
                     }
 
                     wire_chunk_message_free(&wire_chunk_message);
+                    //ESP_LOGI(TAG, "Wire message DONE");
 					break;
 
                 case SNAPCAST_MESSAGE_SERVER_SETTINGS:
@@ -455,11 +431,6 @@ static void http_get_task(void *pvParameters)
 
                     // Volume setting using ADF HAL abstraction
                     audio_hal_set_volume(board_handle->audio_hal,server_settings_message.volume);
-                    // move this implemntation to a Merus Audio hal
-                    //uint8_t cmd[4];
-                    //cmd[0] = 128-server_settings_message.volume  ;
-                    //cmd[1] = cmd[0];
-                    //ma_write(0x20,1,0x0040,cmd,1);
 					break;
 
                 case SNAPCAST_MESSAGE_TIME:
@@ -548,19 +519,11 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
-    //setup_ma120();
-    //ma120_setup_audio(0x20);
-
     ESP_LOGI(TAG, "[ 2 ] Start codec chip");
     board_handle = audio_board_init();
     audio_hal_ctrl_codec(
 		board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_BOTH, AUDIO_HAL_CTRL_START);
     i2s_mclk_gpio_select(0, 0);
-    //audio_hal_set_volume(board_handle->audio_hal,40);
-
-
-    //setup_ma120x0();
-    //setup_rtp_i2s();
 
     wifi_init_sta();
 
