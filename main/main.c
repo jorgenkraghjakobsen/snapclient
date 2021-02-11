@@ -10,24 +10,30 @@
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
 #include "esp_system.h"
+
+#include "wifi_interface.h" 
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
 
-//ESP-IDF stuff
+// Minimum ESP-IDF stuff only hardware abstraction stuff
 #include "board.h"
 #include "es8388.h"
-//#include "audio_hal.h"
 
 #include "lwip/err.h"
 #include "lwip/sockets.h"
 #include "lwip/sys.h"
 #include "lwip/netdb.h"
 #include "lwip/dns.h"
+#include "esp_netif.h"
+#include "net_functions.h"
 #include "mdns.h"
-#include "esp_sntp.h"
+//#include "esp_sntp.h"
+
+// Opus decoder is implemented as a subcomponet from master git repo 
 #include "opus.h"
+
 #include "driver/i2s.h"
 #include "rtprx.h"
 #include "MerusAudio.h"
@@ -36,214 +42,67 @@
 
 #include <sys/time.h>
 
+#include "ota_server.h"
+
+xTaskHandle t_http_get_task; 
+xQueueHandle flow_queue;  
 xQueueHandle i2s_queue;
 uint32_t buffer_ms = 400; 
 uint8_t  muteCH[4] = {0};
+struct timeval tdif; 
 audio_board_handle_t board_handle = NULL; 
-/* The examples use simple WiFi configuration that you can set via
-   'make menuconfig'.
-   If you'd rather not, just change the below entries to strings with
-   the config you want - ie #define EXAMPLE_WIFI_SSID "mywifissid"
-*/
 
-/* Constants that aren't configurable in menuconfig */
-#define HOST "192.168.1.158"
-#define PORT 1704
+int timeval_subtract(struct timeval *result, struct timeval *x, struct timeval *y);
+
 #define BUFF_LEN 4000
-unsigned int addr; 
-uint32_t port = 0; 
+int32_t port = 0; 
+
 /* Logging tag */
 static const char *TAG = "SNAPCAST";
 
-/* FreeRTOS event group to signal when we are connected & ready to make a request */
-//static EventGroupHandle_t wifi_event_group;
-
-/* The event group allows multiple bits for each event,
-   but we only care about one event - are we connected
-   to the AP with an IP? */
-
 static char buff[BUFF_LEN];
-//static audio_element_handle_t snapcast_stream;
-static char mac_address[18];
 
+extern char mac_address[18];
 
-static EventGroupHandle_t s_wifi_event_group;
-
-#define WIFI_CONNECTED_BIT BIT0
-#define WIFI_FAIL_BIT      BIT1
-
-static int s_retry_num = 0;
-
-static void event_handler(void* arg, esp_event_base_t event_base,
-                                int32_t event_id, void* event_data)
-{
-    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
-        esp_wifi_connect();
-    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
-        if (s_retry_num < 10) {
-            esp_wifi_connect();
-            s_retry_num++;
-            ESP_LOGI(TAG, "retry to connect to the AP");
-        } else {
-            xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
-        }
-        ESP_LOGI(TAG,"connect to the AP fail");
-    } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
-        ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
-        ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
-        s_retry_num = 0;
-        xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
-    }
-}
-
-void wifi_init_sta(void)
-{
-    s_wifi_event_group = xEventGroupCreate();
-
-    ESP_ERROR_CHECK(esp_netif_init());
-
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-    esp_netif_create_default_wifi_sta();
-
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-
-    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL));
-    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler, NULL));
-
-    wifi_config_t wifi_config = {
-        .sta = {
-            .ssid = "drk-super",
-            .password = "12341234"
-        },
-    };
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA) );
-    ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config) );
-    ESP_ERROR_CHECK(esp_wifi_start() );
-
-    ESP_LOGI(TAG, "wifi_init_sta finished.");
-
-    /* Waiting until either the connection is established (WIFI_CONNECTED_BIT) or connection failed for the maximum
-     * number of re-tries (WIFI_FAIL_BIT). The bits are set by event_handler() (see above) */
-    EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
-            WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
-            pdFALSE,
-            pdFALSE,
-            portMAX_DELAY);
-
-    /* xEventGroupWaitBits() returns the bits before the call returned, hence we can test which event actually
-     * happened. */
-    if (bits & WIFI_CONNECTED_BIT) {
-        ESP_LOGI(TAG, "connected to ap SSID:kontor password:1234");
-    } else if (bits & WIFI_FAIL_BIT) {
-        ESP_LOGI(TAG, "Failed to connect to SSID:kontor, password:1234...");
-    } else {
-        ESP_LOGE(TAG, "UNEXPECTED EVENT");
-    }
-
-    //ESP_ERROR_CHECK(esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler));
-    //ESP_ERROR_CHECK(esp_event_handler_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler));
-    //vEventGroupDelete(s_wifi_event_group);
-}
-
-static const char * if_str[] = {"STA", "AP", "ETH", "MAX"};
-static const char * ip_protocol_str[] = {"V4", "V6", "MAX"};
-
-void mdns_print_results(mdns_result_t * results){
-    mdns_result_t * r = results;
-    mdns_ip_addr_t * a = NULL;
-    int i = 1, t;
-    while(r){
-        printf("%d: Interface: %s, Type: %s\n", i++, if_str[r->tcpip_if], ip_protocol_str[r->ip_protocol]);
-        if(r->instance_name){
-            printf("  PTR : %s\n", r->instance_name);
-        }
-        if(r->hostname){
-            printf("  SRV : %s.local:%u\n", r->hostname, r->port);
-        }
-        if(r->txt_count){
-            printf("  TXT : [%u] ", r->txt_count);
-            for(t=0; t<r->txt_count; t++){
-                printf("%s=%s; ", r->txt[t].key, r->txt[t].value);
-            }
-            printf("\n");
-        }
-        a = r->addr;
-        while(a){
-            if(a->addr.type == IPADDR_TYPE_V6){
-                printf("  AAAA: " IPV6STR "\n", IPV62STR(a->addr.u_addr.ip6));
-            } else {
-                printf("  A   : " IPSTR "\n", IP2STR(&(a->addr.u_addr.ip4)));
-            }
-            a = a->next;
-        }
-        r = r->next;
-    }
-
-}
-void find_mdns_service(const char * service_name, const char * proto)
-{
-    ESP_LOGI(TAG, "Query PTR: %s.%s.local", service_name, proto);
-
-    mdns_result_t * r = NULL;
-    esp_err_t err = mdns_query_ptr(service_name, proto, 3000, 20,  &r);
-    if(err){
-        ESP_LOGE(TAG, "Query Failed");
-        return;
-    }
-    if(!r){
-        ESP_LOGW(TAG, "No results found!");
-        return;
-    }
-
-    if(r->instance_name){
-            printf("  PTR : %s\n", r->instance_name);
-    }
-    if(r->hostname){
-            printf("  SRV : %s.local:%u\n", r->hostname, r->port);
-      port = r->port;
-    }
-    mdns_query_results_free(r);
-}
+extern EventGroupHandle_t s_wifi_event_group;
 
 static void http_get_task(void *pvParameters)
 {
     struct sockaddr_in servaddr;
     char *start;
     int sockfd;
+    
     char base_message_serialized[BASE_MESSAGE_SIZE];
     char *hello_message_serialized;
     int result, size, id_counter;
-    struct timeval now, tv1, tv2, tv3, last_time_sync;
+    
+    uint32_t client_state_muted = 0; 
+    struct timeval now, ttx, trx, tv1,  last_time_sync;
+
     time_message_t time_message;
     double time_diff;
 
     last_time_sync.tv_sec = 0;
     last_time_sync.tv_usec = 0;
-    uint32_t old_usec = 0; 
-    int32_t diff = 0;
     id_counter = 0;
     
     OpusDecoder *decoder = NULL;
 
-    //int size = opus_decoder_get_size(2);
-    //int oe = 0;
-    //decoder = opus_decoder_create(48000,2,&oe);
-    //  int error = opus_decoder_init(decoder, 48000, 2);
-  	//printf("Initialized Decoder: %d", oe);
 	int16_t *audio = (int16_t *)malloc(960*2*sizeof(int16_t)); // 960*2: 20ms, 960*1: 10ms 
+    uint8_t *timestampSize = malloc(3*sizeof(uint32_t));
     int16_t pcm_size = 120;
     uint16_t channels;
-
+    uint32_t cnt = 0; 
+    int chunk_res; 
     dsp_i2s_task_init(48000,false);
 
     while(1) {
         /* Wait for the callback to set the CONNECTED_BIT in the
            event group.
         */
+
         xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT,
                             false, true, portMAX_DELAY);
-        ESP_LOGI(TAG, "Connected to AP");
 
         // Find snapcast server 
         // Connect to first snapcast server found
@@ -252,7 +111,7 @@ static void http_get_task(void *pvParameters)
         mdns_result_t * r = NULL;
         esp_err_t err = 0;
         while ( !r || err )
-        {  ESP_LOGI(TAG, "Lookup snapcast service on netowork");
+        {  ESP_LOGI(TAG, "Lookup snapcast service on network");
            esp_err_t err = mdns_query_ptr("_snapcast", "_tcp", 3000, 20,  &r);
            if(err){
              ESP_LOGE(TAG, "Query Failed");
@@ -265,7 +124,7 @@ static void http_get_task(void *pvParameters)
         ESP_LOGI(TAG,"Found %08x", r->addr->addr.u_addr.ip4.addr);
         
         servaddr.sin_family = AF_INET;
-        servaddr.sin_addr.s_addr = r->addr->addr.u_addr.ip4.addr;         // inet_addr("192.168.1.158");
+        servaddr.sin_addr.s_addr = r->addr->addr.u_addr.ip4.addr;      
         servaddr.sin_port = htons(r->port);
         mdns_query_results_free(r);
 
@@ -337,46 +196,66 @@ static void http_get_task(void *pvParameters)
         write(sockfd, base_message_serialized, BASE_MESSAGE_SIZE);
         write(sockfd, hello_message_serialized, base_message.size);
         free(hello_message_serialized);
-        int readcalls ; 
-        for (;;) {
-            size = 0;
-            readcalls = 0; 
-            while (size < BASE_MESSAGE_SIZE) {
+        
+        fd_set read_push_set;
+        struct timeval to;
+        int retval;
+        for (;;) { 
+            int s;                                   // Need to have time out if 100 ms between packeage to signal 
+            size = 0;                                // Audio flow stopped 
+            if (0) {    // Blocking 
+              while (size < BASE_MESSAGE_SIZE) {
                 result = read(sockfd, &(buff[size]), BASE_MESSAGE_SIZE - size);
                 if (result < 0) {
                     ESP_LOGI(TAG, "Failed to read from server: %d\r\n", result);
                     return;
                 }
                 size += result;
-            }
+              }
+            } else 
+            {  
+              FD_ZERO (&read_push_set);
+	          FD_SET (sockfd, &read_push_set);
+              to.tv_sec = 0;
+	          to.tv_usec = 200000;
+              // Block until input arrives on one or more active sockets.
+	          retval = select (FD_SETSIZE, &read_push_set, NULL, NULL, &to);
+              if (retval) { 
+                while (size < BASE_MESSAGE_SIZE) {
+                  result = read(sockfd, &(buff[size]), BASE_MESSAGE_SIZE - size);
+                  if (result < 0) {
+                    ESP_LOGI(TAG, "Failed to read from server: %d\r\n", result);
+                    return;
+                  }
+                  size += result;
+                } 
+              }
+              else 
+              { 
+                 ESP_LOGI(TAG, "Socket timeout \r\n");
+                 client_state_muted = 2; 
+                 xQueueSend(flow_queue,&client_state_muted, 10); 
+                 continue;
+              }
+            } 
+
             result = gettimeofday(&now, NULL);
             if (result) {
                 ESP_LOGI(TAG, "Failed to gettimeofday\r\n");
                 return;
             }
-
+           
+  
             result = base_message_deserialize(&base_message, buff, size);
             if (result) {
                 ESP_LOGI(TAG, "Failed to read base message: %d\r\n", result);
                 return;
             }
-            diff = (int32_t)(base_message.sent.usec-now.tv_usec)/1000 ; 
-            if (diff < 0)  
-            { diff = diff + 1000; }    
-            //ESP_LOGI(TAG,"%d %d dif %d",base_message.sent.usec/1000,(int)now.tv_usec/1000,             
-            //                         (int32_t)(base_message.sent.usec-now.tv_usec)/1000 ) ;
+            //ESP_LOGI(TAG,"Rx dif : %d %d ms %d %d",dif_sec, dif_usec/1000, sec%86400 , base_message.sent.sec); 
             
-            //diff = (uint32_t)now.tv_usec-old_usec; 
-            //if (diff < 0)  
-            //{ diff = diff + 1000000; }    
-            //ESP_LOGI(TAG,"%d %d %d %d",base_message.size, (uint32_t)now.tv_usec, old_usec, diff);
-            base_message.received.sec = now.tv_sec;
+            base_message.received.sec =  now.tv_sec;
             base_message.received.usec = now.tv_usec;
-            //ESP_LOGI(TAG,"%d %d : %d %d : %d %d",base_message.size, base_message.refersTo,
-            //base_message.sent.sec,base_message.sent.usec,
-            //base_message.received.sec,base_message.received.usec);  
             
-            old_usec = now.tv_usec;
             start = buff;
             size = 0;
             while (size < base_message.size) {
@@ -427,35 +306,66 @@ static void http_get_task(void *pvParameters)
                 break;
 
                 case SNAPCAST_MESSAGE_WIRE_CHUNK:
+                    cnt++; 
                     if (!received_header) {
                         continue;
                     }
+                    
+                    if (1) {    
 
-                    result = wire_chunk_message_deserialize(&wire_chunk_message, start, size);
-                    if (result) {
-                        ESP_LOGI(TAG, "Failed to read wire chunk: %d\r\n", result);
-                        return;
-                    }
-
-                    //ESP_LOGI(TAG, "Received wire message\r\n");
-                    size = wire_chunk_message.size;
-                    start = (wire_chunk_message.payload);
-                    //ESP_LOGI(TAG, "size : %d\n",size);
-
-                    int frame_size = 0;
-                    while ((frame_size = opus_decode(decoder, (unsigned char *)start, size, (opus_int16*)audio,
+                      result = wire_chunk_message_deserialize(&wire_chunk_message, start, size);
+                      if (result) {
+                          ESP_LOGI(TAG, "Failed to read wire chunk: %d\r\n", result);
+                          return;
+                      }
+                      size = wire_chunk_message.size;
+                      start = (wire_chunk_message.payload);
+                      int frame_size = 0;
+                      while ((frame_size = opus_decode(decoder, (unsigned char *)start, size, (opus_int16*)audio,
                                                      pcm_size/channels, 0)) == OPUS_BUFFER_TOO_SMALL)
-                    {  pcm_size = pcm_size * 2;
-                       ESP_LOGI(TAG, "OPUS encoding buffer too small, resizing to %d samples per channel", pcm_size/channels);
-                    }
-                    //ESP_LOGI(TAG, "Size in: %d -> %d,%d",size,frame_size, pcm_size);
-                    if (frame_size < 0 )
-                    { ESP_LOGE(TAG, "Decode error : %d \n",frame_size);
-                    } else
-                    {
-                      write_ringbuf(audio,frame_size*2*sizeof(uint16_t));
-                    }
+                      {  pcm_size = pcm_size * 2;
+                         ESP_LOGI(TAG, "OPUS encoding buffer too small, resizing to %d samples per channel", pcm_size/channels);
+                      }
+                      //ESP_LOGI(TAG, "time stamp in : %d",wire_chunk_message.timestamp.sec);
+                      if (frame_size < 0 )
+                      { ESP_LOGE(TAG, "Decode error : %d \n",frame_size);
+                      } else
+                      { 
+                        
+                        *(timestampSize + 0) = wire_chunk_message.timestamp.sec & 0xff ; 
+                        *(timestampSize + 1) = (wire_chunk_message.timestamp.sec >> 8) & 0xff ;
+                        *(timestampSize + 2) = (wire_chunk_message.timestamp.sec >> 16) & 0xff ; 
+                        *(timestampSize + 3) = (wire_chunk_message.timestamp.sec >> 24) & 0xff ;
+                        *(timestampSize + 4) = wire_chunk_message.timestamp.usec & 0xff ; 
+                        *(timestampSize + 5) = (wire_chunk_message.timestamp.usec >> 8) & 0xff ;
+                        *(timestampSize + 6) = (wire_chunk_message.timestamp.usec >> 16) & 0xff ;
+                        *(timestampSize + 7) = (wire_chunk_message.timestamp.usec >> 24) & 0xff ;
+                        uint32_t chunk_size = frame_size*2*sizeof(uint16_t) ; 
+                        *(timestampSize + 8) = chunk_size & 0xff ;
+                        *(timestampSize + 9) = (chunk_size >> 8) & 0xff ;
+                        *(timestampSize + 10) = (chunk_size >> 16) & 0xff ;
+                        *(timestampSize + 11) = (chunk_size >> 24) & 0xff ;
+                     
+                        if (cnt%20==0) 
+                        {                    
+                        //ESP_LOGI(TAG, "To buffer: %d.%03d %d %d.%03d ms",wire_chunk_message.timestamp.sec,
+                        //                                    wire_chunk_message.timestamp.usec/1000,
+                        //                                     chunk_size,dif_sec, dif_usec/1000);
+                        } 
+                        //pack(&timestampSize,wire_chunk_message.timestamp,frame_size*2*size(uint16_t))
+                        chunk_res = write_ringbuf(timestampSize,3*sizeof(uint32_t));
+                        if (chunk_res != 12) { 
+                          ESP_LOGI(TAG, "Error writing timestamp to ring buffer: %d",chunk_res);
+                        }
+                    
+                        chunk_res = write_ringbuf((const uint8_t *)audio,chunk_size);
+                        if (chunk_res != chunk_size) { 
+                          ESP_LOGI(TAG, "Error writing data to ring buffer: %d",chunk_res);
+                        }
+                      }
+                    }  
                     wire_chunk_message_free(&wire_chunk_message);
+                
                 break;
 
                 case SNAPCAST_MESSAGE_SERVER_SETTINGS:
@@ -480,14 +390,21 @@ static void http_get_task(void *pvParameters)
                     muteCH[1] = server_settings_message.muted;
                     muteCH[2] = server_settings_message.muted;
                     muteCH[3] = server_settings_message.muted;
-                    
+                    if (server_settings_message.muted != client_state_muted ) 
+                    {  
+                      client_state_muted = server_settings_message.muted; 
+                      xQueueSend(flow_queue,&client_state_muted, 10); 
+                    } 
+
+
+
                     // Volume setting using ADF HAL abstraction 
-                    audio_hal_set_volume(board_handle->audio_hal,server_settings_message.volume);
+                    //audio_hal_set_volume(board_handle->audio_hal,server_settings_message.volume);
                     // move this implemntation to a Merus Audio hal 
-                    //uint8_t cmd[4];
-                    //cmd[0] = 128-server_settings_message.volume  ;
-                    //cmd[1] = cmd[0];
-                    //ma_write(0x20,1,0x0040,cmd,1);
+                    uint8_t cmd[4];
+                    cmd[0] = 128-server_settings_message.volume  ;
+                    cmd[1] = cmd[0];
+                    ma_write(0x20,2,0x0003,cmd,2);
                 break;
 
                 case SNAPCAST_MESSAGE_TIME:
@@ -496,39 +413,37 @@ static void http_get_task(void *pvParameters)
                         ESP_LOGI(TAG, "Failed to deserialize time message\r\n");
                         return;
                     }
-                    //ESP_LOGI(TAG, "BaseTX     : %d %d ", base_message.sent.sec , base_message.sent.usec);
-                    //ESP_LOGI(TAG, "BaseRX     : %d %d ", base_message.received.sec , base_message.received.usec);
-                    //ESP_LOGI(TAG, "baseTX->RX : %d s ", (base_message.received.sec - base_message.sent.sec)/1000);
-                    //ESP_LOGI(TAG, "baseTX->RX : %d ms ", (base_message.received.usec - base_message.sent.usec)/1000);
-                    //ESP_LOGI(TAG, "Latency : %d.%d ", time_message.latency.sec,  time_message.latency.usec/1000);
-                    // tv == server to client latency (s2c)
-                    // time_message.latency == client to server latency(c2s)
-                    // TODO the fact that I have to do this simple conversion means
-                    // I should probably use the timeval struct instead of my own
-                    tv1.tv_sec = base_message.received.sec;
-                    tv1.tv_usec = base_message.received.usec;
-                    tv3.tv_sec = base_message.sent.sec;
-                    tv3.tv_usec = base_message.sent.usec;
-                    timersub(&tv1, &tv3, &tv2);
-                    tv1.tv_sec = time_message.latency.sec;
-                    tv1.tv_usec = time_message.latency.usec;
+                    // Calculate TClientDif : Trx-Tsend-Tnetdelay/2 
+                    ttx.tv_sec  = base_message.sent.sec; 
+                    ttx.tv_usec = base_message.sent.usec; 
+                    trx.tv_sec  = base_message.received.sec; 
+                    trx.tv_usec = base_message.received.usec; 
+                    
+                    timersub(&trx,&ttx, &tdif);
+                    //ESP_LOGI(TAG, "Tclientdif :% 11ld.%03ld ", tdif.tv_sec ,  tdif.tv_usec/1000);
 
-                    // tv1 == c2s: client to server
-                    // tv2 == s2c: server to client
-                    //ESP_LOGI(TAG, "c2s: %ld %ld", tv1.tv_sec, tv1.tv_usec);
-                    //ESP_LOGI(TAG, "s2c: %ld %ld", tv2.tv_sec, tv2.tv_usec);
-                    time_diff = (((double)(tv1.tv_sec - tv2.tv_sec) / 2) * 1000) + (((double)(tv1.tv_usec - tv2.tv_usec) / 2) / 1000);
-                    //ESP_LOGI(TAG, "Current latency: %fms\r\n", time_diff);
-                break;
+
+                    //ESP_LOGI(TAG, "BaseTX  :% 11d.%03d ", base_message.sent.sec , base_message.sent.usec/1000);
+                    //ESP_LOGI(TAG, "BaseRX  :% 11d.%03d ", base_message.received.sec , base_message.received.usec/1000);
+                    //ESP_LOGI(TAG, "Latency :% 11d.%03d ", time_message.latency.sec,  time_message.latency.usec/1000);
+                    //ESP_LOGI(TAG, "Sub     :% 11d.%03d ", time_message.latency.sec + base_message.received.sec , 
+                    //                                      time_message.latency.usec/1000 + base_message.received.usec/1000);
+                    time_diff = time_message.latency.usec/1000 + base_message.received.usec/1000 - 
+                               base_message.sent.usec/1000; 
+                    time_diff = (time_diff > 1000) ? time_diff-1000 : time_diff ; 
+                    //ESP_LOGI(TAG, "TM loopback latency: %03.1f ms", time_diff);  
+                    break;
             }
             // If it's been a second or longer since our last time message was
             // sent, do so now
+            
             result = gettimeofday(&now, NULL);
             if (result) {
                 ESP_LOGI(TAG, "Failed to gettimeofday\r\n");
                 return;
             }
             timersub(&now, &last_time_sync, &tv1);
+            
             if (tv1.tv_sec >= 1) {
                 last_time_sync.tv_sec = now.tv_sec;
                 last_time_sync.tv_usec = now.tv_usec;
@@ -557,7 +472,7 @@ static void http_get_task(void *pvParameters)
                     ESP_LOGI(TAG, "Failed to serialize time message\r\b");
                     continue;
                 }
-
+                //ESP_LOGI(TAG, "---------------------------Write back time message \r\b");
                 write(sockfd, base_message_serialized, BASE_MESSAGE_SIZE);
                 write(sockfd, buff, TIME_MESSAGE_SIZE);
             }
@@ -566,62 +481,7 @@ static void http_get_task(void *pvParameters)
         close(sockfd);
     }
 }
-static int sntp_synced = 0;
 
-void sntp_sync_time(struct timeval *tv_ntp) {
-  if ((sntp_synced%10) == 0) {
-    settimeofday(tv_ntp,NULL); 
-    sntp_synced++;
-    ESP_LOGI(TAG,"SNTP time set from server number :%d",sntp_synced);
-    return;   
-  }
-  sntp_synced++;      
-  struct timeval tv_esp;
-  gettimeofday(&tv_esp, NULL);
-  //ESP_LOGI(TAG,"SNTP diff  s: %ld , %ld ", tv_esp.tv_sec , tv_ntp->tv_sec);
-  ESP_LOGI(TAG,"SNTP diff us: %ld , %ld ", tv_esp.tv_usec , tv_ntp->tv_usec);
-  ESP_LOGI(TAG,"SNTP diff us: %.2f", (double)((tv_esp.tv_usec - tv_ntp->tv_usec)/1000.0));
-    
-}
-
-void sntp_cb(struct timeval *tv)
-{   struct tm timeinfo = { 0 };
-    time_t now = tv->tv_sec;  
-    localtime_r(&now, &timeinfo);
-    char strftime_buf[64];
-    strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
-    ESP_LOGI(TAG, "sntp_cb called :%s", strftime_buf); 
-}
-
-void set_time_from_sntp() {
-    xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT,
-                        false, true, portMAX_DELAY);
-    //ESP_LOGI(TAG, "clock %");
-    
-    ESP_LOGI(TAG, "Initializing SNTP");
-    sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    sntp_setservername(0, "europe.pool.ntp.org");
-	sntp_init();
-    sntp_set_time_sync_notification_cb(sntp_cb);
-    setenv("TZ", "UTC-2", 1);
-    tzset();
-
-    /*time_t now = 0;
-    struct tm timeinfo = { 0 };
-    int retry = 0;
-    const int retry_count = 10;
-    while(timeinfo.tm_year < (2016 - 1900) && ++retry < retry_count) {
-        ESP_LOGI(TAG, "Waiting for system time to be set... (%d/%d)", retry, retry_count);
-        vTaskDelay(2000 / portTICK_PERIOD_MS);
-        time(&now);
-        localtime_r(&now, &timeinfo);
-    }
-    char strftime_buf[64];
-    
-    strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
-    ESP_LOGI(TAG, "The current date/time in UTC is: %s", strftime_buf);
-    */
-}
 
 void app_main(void)
 {
@@ -631,35 +491,52 @@ void app_main(void)
       ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
-    //setup_ma120();
-    //ma120_setup_audio(0x20);
-
-    ESP_LOGI(TAG, "[ 2 ] Start codec chip");
-    board_handle = audio_board_init();
-    audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_BOTH, AUDIO_HAL_CTRL_START);
-    i2s_mclk_gpio_select(0,0);
-    //audio_hal_set_volume(board_handle->audio_hal,40);
+    
+    // if lyra or custom 
+    //board_handle = audio_board_init();
+    //audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_BOTH, AUDIO_HAL_CTRL_START);
+    //i2s_mclk_gpio_select(0,0);
+    
+    //audio_hal_set_volume(board_handle->audio_hal,5);
                     
-
+    
+    
+    setup_ma120();
+    //ma120_setup_audio(0x20);
     //setup_ma120x0();
-    //setup_rtp_i2s();
+    
+    uint8_t rxbuf[12];
+    ma_read(0x20,2,0x0003, rxbuf,3);
+    printf("\nVolume : 0x%02x 0x%02x 0x%02x\n",rxbuf[0], rxbuf[1], rxbuf[2] );
+    ma_write_byte(0x20,2,0x608, 51);
+    
+    dsp_setup_flow(500, 48000);
+    // LYra_4.3 wrover 
+    //           27      I2S_DO
+    //   25      25      I2S_WS
+    //   5       32      I2S_SCK
+    //   26      TDI     I2S_DI 
+    //           4       I2C_SDA
+    //           0       I2C_SCL
+    //           2       NMUTE
+    //           16      ENABLE 
+
+    // Enable and setup WIFI in station mode  and connect to Access point setup in menu config 
 
     wifi_init_sta();
-
-    uint8_t base_mac[6];
-    // Get MAC address for WiFi station
-    esp_read_mac(base_mac, ESP_MAC_WIFI_STA);
-    sprintf(mac_address, "%02X:%02X:%02X:%02X:%02X:%02X", base_mac[0], base_mac[1], base_mac[2], base_mac[3], base_mac[4], base_mac[5]);
-
-    vTaskDelay(5000/portTICK_PERIOD_MS);
-    printf("Settime from sntp\n");
+    net_mdns_register("snapclient"); 
     set_time_from_sntp();
-    printf("Called\n");
-
-    xTaskCreatePinnedToCore(&http_get_task, "http_get_task", 3*4096, NULL, 5, NULL, 0);
+    flow_queue = xQueueCreate( 10 , sizeof(uint32_t));
+    xTaskCreate(&ota_server_task, "ota_server_task", 4096, NULL, 15, NULL);
+    
+    xTaskCreatePinnedToCore(&http_get_task, "http_get_task", 3*4096, NULL, 5, &t_http_get_task, 1);
     while (1) {
         //audio_event_iface_msg_t msg;
-        vTaskDelay(2000/portTICK_PERIOD_MS);
+        vTaskDelay(1000/portTICK_PERIOD_MS);
+        ma120_read_error(0x20);
+
+        //int res = ma_read(0x20,2,0x011a, rxbuf,3);
+        //ESP_LOGI(TAG,"Error : 0x%02x 0x%02x 0x%02x\n",rxbuf[0], rxbuf[1], rxbuf[2] );
 
         esp_err_t ret = 0; //audio_event_iface_listen(evt, &msg, portMAX_DELAY);
         if (ret != ESP_OK) {
@@ -670,3 +547,4 @@ void app_main(void)
        }
 
 }
+

@@ -34,7 +34,7 @@ static int connect_socket = 0;
 void ota_server_task(void *param)
 {
 	//xEventGroupWaitBits(ota_event_group, OTA_CONNECTED_BIT, false, true, portMAX_DELAY);
-	ota_server_start();
+	ota_server_start_my();
 	vTaskDelete(NULL);
 }
 
@@ -155,9 +155,11 @@ static esp_err_t create_tcp_server()
     return ESP_OK;
 }
 
-void ota_server_start(void)
+void ota_server_start_my(void)
 {
 	uint8_t percent_loaded;
+    uint8_t old_percent_loaded;
+    
 	
     ESP_ERROR_CHECK( create_tcp_server() );
 	
@@ -185,7 +187,6 @@ void ota_server_start(void)
 
     esp_ota_handle_t ota_handle; 
 
-	
     do {
         recv_len = recv(connect_socket, ota_buff, OTA_BUFF_SIZE, 0);
 	    
@@ -211,7 +212,11 @@ void ota_server_start(void)
                 content_received += recv_len;
 		        
 		        percent_loaded = (((float)content_received / (float)content_length) * 100.00);
-		        ESP_LOGI(TAG, "Uploaded %03u%%", percent_loaded);
+		        if ((percent_loaded % 10 == 0) & (percent_loaded != old_percent_loaded)) { 
+                    old_percent_loaded = percent_loaded; 
+                    ESP_LOGI(TAG, "Uploaded %03u%%", percent_loaded); 
+                }
+
             }
         }
         else if (recv_len < 0) 
@@ -249,11 +254,11 @@ void ota_server_start(void)
 	}
 
 	
-	for (int x = 2; x >= 1; x--)
-	{
-		ESP_LOGI(TAG, "Prepare to restart system...%d", x);
-		vTaskDelay(1000 / portTICK_PERIOD_MS);
-	}
+	//for (int x = 2; x >= 1; x--)
+	//{
+	  ESP_LOGI(TAG, "Prepare to restart system..");
+	  vTaskDelay(1000 / portTICK_PERIOD_MS);
+	//}
 
     esp_restart();
 }

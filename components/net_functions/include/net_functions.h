@@ -3,6 +3,7 @@
 
 #include "mdns.h"
 
+void net_mdns_register(const char * clientname); 
 void mdns_print_results(mdns_result_t * results);
 
 // Return port number 

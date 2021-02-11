@@ -29,6 +29,14 @@ extern EventGroupHandle_t s_wifi_event_group;
 static const char * if_str[] = {"STA", "AP", "ETH", "MAX"};
 static const char * ip_protocol_str[] = {"V4", "V6", "MAX"};
 
+void net_mdns_register(const char * clientname) { 
+    ESP_LOGI(TAG, "Setup mdns");
+    ESP_ERROR_CHECK( mdns_init() );
+    ESP_ERROR_CHECK( mdns_hostname_set(clientname) );
+	ESP_ERROR_CHECK( mdns_instance_name_set("ESP32 SNAPcast client OTA") );
+    ESP_ERROR_CHECK( mdns_service_add(NULL, "_http", "_tcp", 8032, NULL, 0)  );
+}
+
 void mdns_print_results(mdns_result_t * results){
     mdns_result_t * r = results;
     mdns_ip_addr_t * a = NULL;
@@ -88,7 +96,7 @@ uint32_t find_mdns_service(const char * service_name, const char * proto)
 }
 static int sntp_synced = 0;
 
-
+/*
 void sntp_sync_time(struct timeval *tv_ntp) {
   if ((sntp_synced%10) == 0) {
     settimeofday(tv_ntp,NULL); 
@@ -103,7 +111,7 @@ void sntp_sync_time(struct timeval *tv_ntp) {
   ESP_LOGI(TAG,"SNTP diff us: %ld , %ld ", tv_esp.tv_usec , tv_ntp->tv_usec);
   ESP_LOGI(TAG,"SNTP diff us: %.2f", (double)((tv_esp.tv_usec - tv_ntp->tv_usec)/1000.0));
     
-}
+}*/
 
 void sntp_cb(struct timeval *tv)
 {   struct tm timeinfo = { 0 };
@@ -118,14 +126,13 @@ void set_time_from_sntp() {
     xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT,
                         false, true, portMAX_DELAY);
     //ESP_LOGI(TAG, "clock %");
-    
     ESP_LOGI(TAG, "Initializing SNTP");
     sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    //sntp_setservername(0, "ntp.ubuntu.com");
-    sntp_setservername(0, "europe.pool.ntp.org");
+    sntp_setservername(0, "pool.ntp.org");
+    //sntp_setservername(1, "europe.pool.ntp.org");
 	sntp_init();
-    sntp_set_time_sync_notification_cb(sntp_cb);
-    setenv("TZ", "UTC-2", 1);
+    //sntp_set_time_sync_notification_cb(sntp_cb);
+    setenv("TZ", "UTC-1", 1);
     tzset();
 
     time_t now = 0;

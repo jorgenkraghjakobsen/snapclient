@@ -34,11 +34,9 @@ static const char* I2C_TAG = "i2c";
         }
 
 
-#define I2C_MASTER_SCL_IO CONFIG_MA120X0_SCL_PIN  //4   /*!< gpio number for I2C master clock */
-#define I2C_MASTER_SDA_IO CONFIG_MA120X0_SDA_PIN  //0
-    /*!< gpio number for I2C master data  */
-#define I2C_MASTER_NUM I2C_NUM_0
- /*!< I2C port number for master dev */
+#define I2C_MASTER_SCL_IO CONFIG_MA120X0_SCL_PIN    /*!< gpio number for I2C master clock */
+#define I2C_MASTER_SDA_IO CONFIG_MA120X0_SDA_PIN    /*!< gpio number for I2C master data  */
+#define I2C_MASTER_NUM I2C_NUM_0                    /*!< I2C port number for master dev */
 #define I2C_MASTER_TX_BUF_DISABLE   0   /*!< I2C master do not need buffer */
 #define I2C_MASTER_RX_BUF_DISABLE   0   /*!< I2C master do not need buffer */
 #define I2C_MASTER_FREQ_HZ    100000     /*!< I2C master clock frequency */
@@ -104,22 +102,23 @@ void setup_ma120()
    io_conf.pull_up_en = 0;
 
    printf("setup output %d %d \n",MA_ENABLE_IO, MA_NMUTE_IO);
-   gpio_config(&io_conf);
+   //gpio_config(&io_conf);
 
+   
    io_conf.intr_type = GPIO_PIN_INTR_DISABLE;
    io_conf.mode = GPIO_MODE_INPUT;
    io_conf.pin_bit_mask = (1ULL<<MA_NCLIP_IO | 1ULL<<MA_NERR_IO );
    io_conf.pull_down_en = 0;
    io_conf.pull_up_en = 0;
-
-
    printf("setup input %d %d \n",MA_NCLIP_IO, MA_NERR_IO);
    gpio_config(&io_conf);
 
 
    gpio_set_level(MA_NMUTE_IO, 0);
    gpio_set_level(MA_ENABLE_IO, 0);
-
+   gpio_set_drive_capability(I2C_MASTER_SCL_IO,2);
+   gpio_set_drive_capability(I2C_MASTER_SDA_IO,2);
+   
    i2c_master_init();
 
    gpio_set_level(MA_ENABLE_IO, 1);
@@ -150,27 +149,39 @@ void setup_ma120()
      }
      printf("%02x ",otp[i]);
    }
+   
    res = ma_write_byte(0x20,2,0x060c,0);
-   res = ma_read_byte(0x20,2,0x060c);
-   printf("\nHardware version: 0x%02x\n",res);
+   res = ma_read(0x20,2,0x060c,rxbuf,2);
+   printf("\nHardware version: 0x%02x\n",rxbuf[0]);
 
+   res = ma_read(0x20,2,0x0000, rxbuf,2);
+   printf("\nAddress 0 : 0x%02x\n",rxbuf[0]);
+   ma_write_byte(0x20,2,0x0003,0x50);
+   ma_write_byte(0x20,2,0x0004,0x50);
+   ma_write_byte(0x20,2,0x0005,0x02);
+   //ma_write_byte(0x20,2,0x0246,0x00)  ;   // 
    printf("\n");
 }
+
 uint8_t b[32];
 #define CHECK(ADDR,L) ma_read(0x20,2,ADDR,b,L); printf("Check 0x%04x :",ADDR); for (int ci=0;ci<L;ci++) printf(" 0x%02x",b[ci]); printf("\n");
 
 void ma120_setup_audio(uint8_t i2c_addr)
 { uint8_t cmd[32];
   //system("$SCOM w 0x0003 0x50 0x50 0x02");
-  cmd[0] = 0x50;
-  cmd[1] = 0x50;
+  cmd[0] = 0x60;
+  cmd[1] = 0x60;
   cmd[2] = 0x02;
-  ma_write(i2c_addr,2,0x0003,cmd,3);
-  //CHECK(0x0003,3);
+  ma_write_byte(i2c_addr,2,0x0003,0x60);
+  ma_write_byte(i2c_addr,2,0x0004,0x60);
+  ma_write_byte(i2c_addr,2,0x0005,0x02);
+  
+  CHECK(0x0003,3);
   //system("$SCOM w 0x0015 0x12");
   ma_write_byte(i2c_addr,2,0x0015, 0x12);
   //CHECK(0x0015,1);
   //system("$SCOM w 0x0025 0x0e");
+
   ma_write_byte(i2c_addr,2,0x0025, 0x0e);
   //CHECK(0x0025,1);
   //system("$SCOM w 0x003d 0x73");
@@ -178,7 +189,7 @@ void ma120_setup_audio(uint8_t i2c_addr)
   cmd[0] = 0xfe;
   cmd[1] = 0x03;
   ma_write(i2c_addr,2,0x003d,cmd,2);
-  //CHECK(0x003d,2);
+  CHECK(0x003d,2);
   //system("$SCOM w 0x0040 0xf0 0x03");
   cmd[0] = 0xf0;
   cmd[1] = 0x03;
@@ -228,7 +239,7 @@ void ma120_setup_audio(uint8_t i2c_addr)
   ma_write(i2c_addr,2,0x010f,cmd,3);
   //CHECK(0x010f,3);
   //system("$SCOM w 0x0140 0x5c");
-  ma_write_byte(i2c_addr,2,0x0140, 0x5c);
+  ma_write_byte(i2c_addr,2,0x0140, 0x8a);
   //CHECK(0x0140,1);
 
   //system("$SCOM w 0x0152 0x00 0x77 0x00");
@@ -278,10 +289,20 @@ void ma120_setup_audio(uint8_t i2c_addr)
 
 }
 
+
+#define CRED "\x1b[31m" 
+#define CGRE "\x1b[32m" 
+#define CYEL "\x1b[33m" 
+#define CBLU "\x1b[34m" 
+#define CMAG "\x1b[35m"  
+#define CYAN "\x1b[36m"
+#define CWHI "\x1b[0m" 
+
 //var sys_err1_str =  ['X','X','DSP3','DSP2','DSP1','DSP0','ERR','PVT_low'];
 //var sys_err0_str =  ['TW','AUD','CLK','PV_ov','PV_low','PV_uv','OTE','OTW'];
-//const char * syserr1_str = { "X", "X", "DSP3","DSP2","DSP1","DSP0","ERR","PVT_low" } ;
-//const char * syserr0_str = { "TW","AUD","CLK","PV_ov","PV_low","PV_uv","OTE","OTW" } ;
+const char * syserr1_str[] = { "X", "X", "DSP3","DSP2","DSP1","DSP0","ERR","PVT_low" } ;
+const char * syserr0_str[] = { "TW","AUD","CLK","PV_ov","PV_low","PV_uv","OTE","OTW" } ;
+//static uint8_t terr = 0; 
 void ma120_read_error(uint8_t i2c_addr)
 { //0x0118 error now ch0 [clip_stuck  dc  vcf_err  ocp_severe  ocp]
   //0x0119 error now ch1 [clip_stuck  dc  vcf_err  ocp_severe  ocp]
@@ -291,22 +312,30 @@ void ma120_read_error(uint8_t i2c_addr)
   //0x011d error acc ch1 [clip_stuck  dc  vcf_err  ocp_severe  ocp]
   //0x011e error acc system [7..0]
   //0x011f error acc system [13..8]
-  uint8_t rxbuf[10] = {0};
-  char * l1;
-  l1 = malloc(40);
-  uint8_t res = 0xff ; // ma_read(i2c_addr,2,MA_core__prot_sys__errVect_now__errVector_ch0__a,rxbuf,8);
-  //for (int i = 0; i<=7;i++)
-  //{
-  //  printf("%d %s",i,((rxbuf[2] & (1<<i))==(1<<i)) ? sysstr0_str[i] : "   ");
-  //}
+  uint8_t errbuf[10] = {0};
+  
+  uint8_t res = ma_read(i2c_addr,2,0x0118,errbuf,8);
 
+  //errbuf[2] = terr++; 
+
+  for (int i = 0; i<=7;i++)
+  { 
+    printf(" %s%s ",((errbuf[3] & (1<<i))==(1<<i)) ? CRED : CGRE ,syserr1_str[i]);
+  } 
+  printf("\n");
+
+  for (int i = 0; i<=7;i++)
+  { 
+    printf(" %s%s ",((errbuf[2] & (1<<i))==(1<<i)) ? CRED : CGRE ,syserr0_str[i]);
+  } 
+  printf("\n");
+  
   //printf("0x011b : 0x%02x %s", rxbuf[2], l1 );
   printf("\nError vectors :");
   for (int i = 0; i<8; i++)
-  { printf("%02x ", rxbuf[i]);
+  { printf("%02x ", errbuf[i]);
   }
   printf("\n");
-
 }
 
 void i2c_master_init()
@@ -388,7 +417,7 @@ esp_err_t ma_read(uint8_t i2c_addr, uint8_t prot, uint16_t address, uint8_t *rbu
   }
   i2c_master_start(cmd);
   i2c_master_write_byte(cmd, (i2c_addr<<1) | READ_BIT, ACK_CHECK_EN);
-
+  //if (n == 1 )
   i2c_master_read(cmd, rbuf, n-1 ,ACK_VAL);
  // for (uint8_t i = 0;i<n;i++)
  // { i2c_master_read_byte(cmd, rbuf++, ACK_VAL); }
@@ -419,7 +448,9 @@ uint8_t ma_read_byte(uint8_t i2c_addr,uint8_t prot, uint16_t address)
   }
   i2c_master_start(cmd);							    // Repeated start
   i2c_master_write_byte(cmd, (i2c_addr<<1) | READ_BIT, ACK_CHECK_EN);
+  
   i2c_master_read_byte(cmd, &value, NACK_VAL);
+  
   i2c_master_stop(cmd);
   ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
   i2c_cmd_link_delete(cmd);
@@ -427,6 +458,5 @@ uint8_t ma_read_byte(uint8_t i2c_addr,uint8_t prot, uint16_t address)
       printf("i2c Error read - readback\n");
 	  return ESP_FAIL;
   }
-
   return value;
 }
