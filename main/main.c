@@ -65,6 +65,7 @@ static char buff[BUFF_LEN];
 extern char mac_address[18];
 
 extern EventGroupHandle_t s_wifi_event_group;
+enum codec_type { PCM , FLAC, OGG, OPUS };
 
 static void http_get_task(void *pvParameters)
 {
@@ -78,7 +79,10 @@ static void http_get_task(void *pvParameters)
     
     uint32_t client_state_muted = 0; 
     struct timeval now, ttx, trx, tv1,  last_time_sync;
-
+    
+    uint8_t * timestampSize; 
+    timestampSize = malloc(12);  
+                                
     time_message_t time_message;
     double time_diff;
 
@@ -86,10 +90,12 @@ static void http_get_task(void *pvParameters)
     last_time_sync.tv_usec = 0;
     id_counter = 0;
     
+    int codec = 0; 
+
     OpusDecoder *decoder = NULL;
 
 	int16_t *audio = (int16_t *)malloc(960*2*sizeof(int16_t)); // 960*2: 20ms, 960*1: 10ms 
-    uint8_t *timestampSize = malloc(3*sizeof(uint32_t));
+    //uint8_t *timestampSize = malloc(3*sizeof(uint32_t));
     int16_t pcm_size = 120;
     uint16_t channels;
     uint32_t cnt = 0; 
@@ -198,60 +204,51 @@ static void http_get_task(void *pvParameters)
         free(hello_message_serialized);
         
         fd_set read_push_set;
-        struct timeval to;
+        //struct timeval to;
         int retval;
         for (;;) { 
-            int s;                                   // Need to have time out if 100 ms between packeage to signal 
+            // Need to have time out if 100 ms between packeage to signal 
             size = 0;                                // Audio flow stopped 
-            if (0) {    // Blocking 
+            // Read from socket with time out  
+            FD_ZERO (&read_push_set);
+	        FD_SET (sockfd, &read_push_set);
+             
+            struct timeval to;
+            to.tv_sec = 0;
+	        to.tv_usec = 300000;
+            // Block until input arrives on one or more active sockets.
+	        retval = select (FD_SETSIZE, &read_push_set, NULL, NULL, &to);
+            if (retval) { 
               while (size < BASE_MESSAGE_SIZE) {
                 result = read(sockfd, &(buff[size]), BASE_MESSAGE_SIZE - size);
                 if (result < 0) {
-                    ESP_LOGI(TAG, "Failed to read from server: %d\r\n", result);
-                    return;
+                  ESP_LOGI(TAG, "Failed to read from server: %d\r\n", result);
+                  return;
                 }
                 size += result;
-              }
-            } else 
-            {  
-              FD_ZERO (&read_push_set);
-	          FD_SET (sockfd, &read_push_set);
-              to.tv_sec = 0;
-	          to.tv_usec = 200000;
-              // Block until input arrives on one or more active sockets.
-	          retval = select (FD_SETSIZE, &read_push_set, NULL, NULL, &to);
-              if (retval) { 
-                while (size < BASE_MESSAGE_SIZE) {
-                  result = read(sockfd, &(buff[size]), BASE_MESSAGE_SIZE - size);
-                  if (result < 0) {
-                    ESP_LOGI(TAG, "Failed to read from server: %d\r\n", result);
-                    return;
-                  }
-                  size += result;
-                } 
-              }
-              else 
-              { 
-                 ESP_LOGI(TAG, "Socket timeout \r\n");
-                 client_state_muted = 2; 
-                 xQueueSend(flow_queue,&client_state_muted, 10); 
-                 continue;
-              }
-            } 
+              } 
+            }
+            else 
+            { 
+               ESP_LOGI(TAG, "Socket timeout after %d ms\r\n",(uint32_t)to.tv_usec/1000);
+               client_state_muted = 2; 
+               xQueueSend(flow_queue,&client_state_muted, 10); 
+               continue;    // Return wait for next socket package 
+            }
+             
 
             result = gettimeofday(&now, NULL);
             if (result) {
                 ESP_LOGI(TAG, "Failed to gettimeofday\r\n");
                 return;
             }
-           
   
             result = base_message_deserialize(&base_message, buff, size);
             if (result) {
                 ESP_LOGI(TAG, "Failed to read base message: %d\r\n", result);
                 return;
             }
-            //ESP_LOGI(TAG,"Rx dif : %d %d ms %d %d",dif_sec, dif_usec/1000, sec%86400 , base_message.sent.sec); 
+            //ESP_LOGI(TAG,"Rx dif : %d %d", base_message.sent.sec, base_message.sent.usec/1000); 
             
             base_message.received.sec =  now.tv_sec;
             base_message.received.usec = now.tv_usec;
@@ -264,7 +261,6 @@ static void http_get_task(void *pvParameters)
                     ESP_LOGI(TAG, "Failed to read from server: %d\r\n", result);
                     return;
                 }
-
                 size += result;
             }
 
@@ -278,28 +274,36 @@ static void http_get_task(void *pvParameters)
 
                     ESP_LOGI(TAG, "Received codec header message\r\n");
                     
+                    
                     size = codec_header_message.size;
                     start = codec_header_message.payload;
                     if (strcmp(codec_header_message.codec,"opus") == 0) { 
-                       ESP_LOGI(TAG, "Codec : %s , Size: %d \n",codec_header_message.codec,size);
+                       uint32_t rate;
+                       memcpy(&rate, start+4,sizeof(rate));
+                       uint16_t bits;
+                       memcpy(&bits, start+8,sizeof(bits));
+                       memcpy(&channels, start+10,sizeof(channels));
+                       ESP_LOGI(TAG, "Opus sampleformat: %d:%d:%d\n",rate,bits,channels);
+                       int error = 0;
+                       decoder = opus_decoder_create(rate,channels,&error);
+                       if (error != 0)
+                       { ESP_LOGI(TAG, "Failed to init opus coder"); 
+                         return;
+                       }
+                       codec = OPUS; 
+                       ESP_LOGI(TAG, "Initialized opus Decoder: %d", error);
+                    
+                    } else if (strcmp(codec_header_message.codec,"pcm") == 0) { 
+                       codec = PCM;  
+                    
                     } else 
-                    { 
+                    {  
                        ESP_LOGI(TAG, "Codec : %s not supported\n",codec_header_message.codec);
                        ESP_LOGI(TAG, "Change encoder codec to opus in /etc/snapserver.conf on server\n");
                        return;  
                     }
-                    uint32_t rate;
-                    memcpy(&rate, start+4,sizeof(rate));
-                    uint16_t bits;
-                    memcpy(&bits, start+8,sizeof(bits));
-                    memcpy(&channels, start+10,sizeof(channels));
-                    ESP_LOGI(TAG, "Opus sampleformat: %d:%d:%d\n",rate,bits,channels);
-                    int error = 0;
-                    decoder = opus_decoder_create(rate,channels,&error);
-                    if (error != 0)
-                    { ESP_LOGI(TAG, "Failed to init opus coder"); }
-                    ESP_LOGI(TAG, "Initialized opus Decoder: %d", error);
-
+                    ESP_LOGI(TAG, "Codec : %s , Size: %d \n",codec_header_message.codec,size);
+                    
                     codec_header_message_free(&codec_header_message);
                     received_header = true;
 
@@ -307,11 +311,11 @@ static void http_get_task(void *pvParameters)
 
                 case SNAPCAST_MESSAGE_WIRE_CHUNK:
                     cnt++; 
-                    if (!received_header) {
+                    if (!received_header) {   // Ignore audio packets until codec configured 
                         continue;
                     }
                     
-                    if (1) {    
+                        
 
                       result = wire_chunk_message_deserialize(&wire_chunk_message, start, size);
                       if (result) {
@@ -320,52 +324,61 @@ static void http_get_task(void *pvParameters)
                       }
                       size = wire_chunk_message.size;
                       start = (wire_chunk_message.payload);
-                      int frame_size = 0;
-                      while ((frame_size = opus_decode(decoder, (unsigned char *)start, size, (opus_int16*)audio,
+                      switch (codec) { 
+                           case OPUS : {  
+                              int frame_size = 0;
+                              while ((frame_size = opus_decode(decoder, (unsigned char *)start, size, (opus_int16*)audio,
                                                      pcm_size/channels, 0)) == OPUS_BUFFER_TOO_SMALL)
-                      {  pcm_size = pcm_size * 2;
-                         ESP_LOGI(TAG, "OPUS encoding buffer too small, resizing to %d samples per channel", pcm_size/channels);
-                      }
-                      //ESP_LOGI(TAG, "time stamp in : %d",wire_chunk_message.timestamp.sec);
-                      if (frame_size < 0 )
-                      { ESP_LOGE(TAG, "Decode error : %d \n",frame_size);
-                      } else
-                      { 
-                        
-                        *(timestampSize + 0) = wire_chunk_message.timestamp.sec & 0xff ; 
-                        *(timestampSize + 1) = (wire_chunk_message.timestamp.sec >> 8) & 0xff ;
-                        *(timestampSize + 2) = (wire_chunk_message.timestamp.sec >> 16) & 0xff ; 
-                        *(timestampSize + 3) = (wire_chunk_message.timestamp.sec >> 24) & 0xff ;
-                        *(timestampSize + 4) = wire_chunk_message.timestamp.usec & 0xff ; 
-                        *(timestampSize + 5) = (wire_chunk_message.timestamp.usec >> 8) & 0xff ;
-                        *(timestampSize + 6) = (wire_chunk_message.timestamp.usec >> 16) & 0xff ;
-                        *(timestampSize + 7) = (wire_chunk_message.timestamp.usec >> 24) & 0xff ;
-                        uint32_t chunk_size = frame_size*2*sizeof(uint16_t) ; 
-                        *(timestampSize + 8) = chunk_size & 0xff ;
-                        *(timestampSize + 9) = (chunk_size >> 8) & 0xff ;
-                        *(timestampSize + 10) = (chunk_size >> 16) & 0xff ;
-                        *(timestampSize + 11) = (chunk_size >> 24) & 0xff ;
-                     
-                        if (cnt%20==0) 
-                        {                    
-                        //ESP_LOGI(TAG, "To buffer: %d.%03d %d %d.%03d ms",wire_chunk_message.timestamp.sec,
-                        //                                    wire_chunk_message.timestamp.usec/1000,
-                        //                                     chunk_size,dif_sec, dif_usec/1000);
-                        } 
-                        //pack(&timestampSize,wire_chunk_message.timestamp,frame_size*2*size(uint16_t))
-                        chunk_res = write_ringbuf(timestampSize,3*sizeof(uint32_t));
-                        if (chunk_res != 12) { 
-                          ESP_LOGI(TAG, "Error writing timestamp to ring buffer: %d",chunk_res);
-                        }
-                    
-                        chunk_res = write_ringbuf((const uint8_t *)audio,chunk_size);
-                        if (chunk_res != chunk_size) { 
-                          ESP_LOGI(TAG, "Error writing data to ring buffer: %d",chunk_res);
-                        }
-                      }
-                    }  
+                              {  pcm_size = pcm_size * 2;
+                                 ESP_LOGI(TAG, "OPUS encoding buffer too small, resizing to %d samples per channel", pcm_size/channels);
+                              }
+                              //ESP_LOGI(TAG, "time stamp in : %d",wire_chunk_message.timestamp.sec);
+                              if (frame_size < 0 )
+                              { 
+                                ESP_LOGE(TAG, "Decode error : %d \n",frame_size);
+                              } else
+                              { 
+                                //pack(&timestampSize,wire_chunk_message.timestamp,frame_size*2*size(uint16_t))
+                                memcpy(timestampSize, &wire_chunk_message.timestamp.sec, sizeof(wire_chunk_message.timestamp.sec));
+                                memcpy(timestampSize+4, &wire_chunk_message.timestamp.usec, sizeof(wire_chunk_message.timestamp.usec));
+                                uint32_t chunk_size = frame_size*2*sizeof(uint16_t) ; 
+                                memcpy(timestampSize+8, &chunk_size, sizeof(chunk_size));
+                                
+                                //ESP_LOGI(TAG, "Network jitter %d %d",(uint32_t) wire_chunk_message.timestamp.usec/1000,
+                                //                                          (uint32_t) base_message.sent.usec/1000);
+
+                                if ((chunk_res = write_ringbuf(timestampSize,3*sizeof(uint32_t))) != 12) { 
+                                  ESP_LOGI(TAG, "Error writing timestamp to ring buffer: %d",chunk_res);
+                                }
+                                if ((chunk_res = write_ringbuf((const uint8_t *)audio,chunk_size)) != chunk_size) { 
+                                  ESP_LOGI(TAG, "Error writing data to ring buffer: %d",chunk_res);
+                                }
+                              } 
+                              break;
+                            }
+                            case PCM : {
+                              
+                                memcpy(timestampSize, &wire_chunk_message.timestamp.sec, sizeof(wire_chunk_message.timestamp.sec));
+                                memcpy(timestampSize+4, &wire_chunk_message.timestamp.usec, sizeof(wire_chunk_message.timestamp.usec));
+                                uint32_t chunk_size = size ; 
+                                memcpy(timestampSize+8, &chunk_size, sizeof(chunk_size));
+                                
+                                //ESP_LOGI(TAG, "Network jitter %d %d",(uint32_t) wire_chunk_message.timestamp.usec/1000,
+                                //                                          (uint32_t) base_message.sent.usec/1000);
+
+                                if ((chunk_res = write_ringbuf(timestampSize,3*sizeof(uint32_t))) != 12) { 
+                                  ESP_LOGI(TAG, "Error writing timestamp to ring buffer: %d",chunk_res);
+                                }
+
+                                if ((chunk_res = write_ringbuf((const uint8_t *)start,size)) != size) { 
+                                  ESP_LOGI(TAG, "Error writing data to ring buffer: %d",chunk_res);
+                                }
+                              
+                              break;    
+                            } 
+                         }  
                     wire_chunk_message_free(&wire_chunk_message);
-                
+                    
                 break;
 
                 case SNAPCAST_MESSAGE_SERVER_SETTINGS:
@@ -395,9 +408,6 @@ static void http_get_task(void *pvParameters)
                       client_state_muted = server_settings_message.muted; 
                       xQueueSend(flow_queue,&client_state_muted, 10); 
                     } 
-
-
-
                     // Volume setting using ADF HAL abstraction 
                     //audio_hal_set_volume(board_handle->audio_hal,server_settings_message.volume);
                     // move this implemntation to a Merus Audio hal 
@@ -533,7 +543,7 @@ void app_main(void)
     while (1) {
         //audio_event_iface_msg_t msg;
         vTaskDelay(1000/portTICK_PERIOD_MS);
-        ma120_read_error(0x20);
+        //ma120_read_error(0x20);
 
         //int res = ma_read(0x20,2,0x011a, rxbuf,3);
         //ESP_LOGI(TAG,"Error : 0x%02x 0x%02x 0x%02x\n",rxbuf[0], rxbuf[1], rxbuf[2] );

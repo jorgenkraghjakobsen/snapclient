@@ -297,11 +297,9 @@ void ma120_setup_audio(uint8_t i2c_addr)
 #define CMAG "\x1b[35m"  
 #define CYAN "\x1b[36m"
 #define CWHI "\x1b[0m" 
-
-//var sys_err1_str =  ['X','X','DSP3','DSP2','DSP1','DSP0','ERR','PVT_low'];
-//var sys_err0_str =  ['TW','AUD','CLK','PV_ov','PV_low','PV_uv','OTE','OTW'];
-const char * syserr1_str[] = { "X", "X", "DSP3","DSP2","DSP1","DSP0","ERR","PVT_low" } ;
-const char * syserr0_str[] = { "TW","AUD","CLK","PV_ov","PV_low","PV_uv","OTE","OTW" } ;
+const char * cherr_str[]   = { "Clip_stuck", "DC", "VCF" , "OCP_SEV", "OCP" };
+const char * syserr1_str[] = { " X "," X ","DSP3 "," DSP2"," DSP1 ","DSP0 ","ERR","PVT_low" };
+const char * syserr0_str[] = { "OTW","OTE","PV_uv","PV_low","OV_ov"," CLK ","AUD"," TW    " }; 
 //static uint8_t terr = 0; 
 void ma120_read_error(uint8_t i2c_addr)
 { //0x0118 error now ch0 [clip_stuck  dc  vcf_err  ocp_severe  ocp]
@@ -315,27 +313,30 @@ void ma120_read_error(uint8_t i2c_addr)
   uint8_t errbuf[10] = {0};
   
   uint8_t res = ma_read(i2c_addr,2,0x0118,errbuf,8);
-
-  //errbuf[2] = terr++; 
+  
+  // Error flag now : RED 
+  // Error flag acc : WHITE
+  // No falg set    : GREEN  
+  for (int i = 0; i<=7;i++)
+  { //Error now 
+    printf(" %s%s ",((errbuf[3] & (1<<i))==(1<<i)) ? CRED : 
+                    ((errbuf[7] & (1<<i))==(1<<i)) ? CWHI : CGRE ,syserr1_str[i]);
+  } 
+  printf(" [0x%02x 0x%02x]\n",errbuf[3],errbuf[7]);
 
   for (int i = 0; i<=7;i++)
   { 
-    printf(" %s%s ",((errbuf[3] & (1<<i))==(1<<i)) ? CRED : CGRE ,syserr1_str[i]);
+    printf(" %s%s ",((errbuf[2] & (1<<i))==(1<<i)) ? CRED :
+                    ((errbuf[6] & (1<<i))==(1<<i)) ? CWHI : CGRE ,syserr0_str[i]);
   } 
-  printf("\n");
-
-  for (int i = 0; i<=7;i++)
-  { 
-    printf(" %s%s ",((errbuf[2] & (1<<i))==(1<<i)) ? CRED : CGRE ,syserr0_str[i]);
-  } 
-  printf("\n");
+  printf(" [0x%02x 0x%02x]\n",errbuf[2],errbuf[6]);
   
   //printf("0x011b : 0x%02x %s", rxbuf[2], l1 );
-  printf("\nError vectors :");
-  for (int i = 0; i<8; i++)
-  { printf("%02x ", errbuf[i]);
-  }
-  printf("\n");
+  //printf("\nError vectors :");
+  //for (int i = 0; i<8; i++)
+  //{ printf("%02x ", errbuf[i]);
+  // }
+  //printf("\n");
 }
 
 void i2c_master_init()

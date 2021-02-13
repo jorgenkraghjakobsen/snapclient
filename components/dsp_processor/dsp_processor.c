@@ -357,7 +357,12 @@ static void dsp_i2s_task_handler(void *arg)
             } 
             break;
           case dspfBiamp :
-            { // Process audio ch0 LOW PASS FILTER
+            { if (cnt%120==0)
+              { ESP_LOGI("I2S", "In dspf biamp :%d",chunk_size);
+                  //ws_server_send_bin_client(0,(char*)audio, 240);
+                  //printf("%d %d \n",byteWritten, i2s_evt.size );
+              }
+              // Process audio ch0 LOW PASS FILTER
               dsps_biquad_f32_ae32(sbuffer0, sbuftmp0, len, bq[0].coeffs, bq[0].w);
               dsps_biquad_f32_ae32(sbuftmp0, sbufout0, len, bq[1].coeffs, bq[1].w);
 
@@ -375,9 +380,9 @@ static void dsp_i2s_task_handler(void *arg)
                 dsp_audio[i*4+3] = ((valint[1] & 0xff00)>>8);
               }
               if (bits_per_sample == 16) { 
-                i2s_write(0,(char*)audio,  chunk_size, &bytes_written, portMAX_DELAY); 
+                i2s_write(0,(char*)dsp_audio,  chunk_size, &bytes_written, portMAX_DELAY); 
               } else 
-              { i2s_write_expand(0, (char*)audio, chunk_size,16,32, &bytes_written, portMAX_DELAY);
+              { i2s_write_expand(0, (char*)dsp_audio, chunk_size,16,32, &bytes_written, portMAX_DELAY);
               }
             }
             break;
@@ -524,7 +529,7 @@ size_t write_ringbuf(const uint8_t *data, size_t size)
 // Interface for cross over frequency and level
 
 void dsp_setup_flow(double freq, uint32_t samplerate) {
-  float f = freq/samplerate/2.;
+  float f = freq/samplerate/2.0;
 
   bq[0] = (ptype_t) { LPF, f, 0, 0.707, NULL, NULL, {0,0,0,0,0}, {0, 0} } ;
   bq[1] = (ptype_t) { LPF, f, 0, 0.707, NULL, NULL, {0,0,0,0,0}, {0, 0} } ;
