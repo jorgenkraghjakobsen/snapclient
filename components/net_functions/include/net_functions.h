@@ -3,6 +3,8 @@
 
 #include "mdns.h"
 
+#define SNTP_TIMEZONE CONFIG_SNTP_TIMEZONE
+
 void net_mdns_register(const char * clientname);
 void mdns_print_results(mdns_result_t * results);
 

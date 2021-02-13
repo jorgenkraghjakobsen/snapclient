@@ -128,11 +128,11 @@ void set_time_from_sntp() {
     //ESP_LOGI(TAG, "clock %");
     ESP_LOGI(TAG, "Initializing SNTP");
     sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    sntp_setservername(0, "pool.ntp.org");
+	sntp_setservername(0, CONFIG_SNTP_SERVER);
     //sntp_setservername(1, "europe.pool.ntp.org");
 	sntp_init();
     //sntp_set_time_sync_notification_cb(sntp_cb);
-    setenv("TZ", "UTC-1", 1);
+    setenv("TZ", SNTP_TIMEZONE, 1);
     tzset();
 
     time_t now = 0;
