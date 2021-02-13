@@ -29,7 +29,6 @@
 #include "esp_netif.h"
 #include "net_functions.h"
 #include "mdns.h"
-//#include "esp_sntp.h"
 
 // Opus decoder is implemented as a subcomponet from master git repo
 #include "opus.h"
@@ -544,7 +543,9 @@ void app_main(void)
 
     wifi_init_sta();
     net_mdns_register("snapclient");
+#ifdef CONFIG_SNAPCLIENT_SNTP_ENABLE
     set_time_from_sntp();
+#endif
     flow_queue = xQueueCreate( 10 , sizeof(uint32_t));
     xTaskCreate(&ota_server_task, "ota_server_task", 4096, NULL, 15, NULL);
 

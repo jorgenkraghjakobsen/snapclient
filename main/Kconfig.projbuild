@@ -30,3 +30,12 @@ menu "Snapcast Configuration"
         help
             Name of the client to register the snapserver.
 endmenu
+
+menu "SNTP Configuration"
+
+    config SNPACLIENT_SNTP_ENABLE
+        string "Enable SNTP"
+        default true
+        help
+            Enable the srtup of RTC time using the SNTP protocol.
+endmenu
