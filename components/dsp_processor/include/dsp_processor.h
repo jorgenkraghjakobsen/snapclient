@@ -31,6 +31,6 @@ typedef struct pnode {
 } pnode_t;
 
 void dsp_setup_flow(double freq,uint32_t samplerate);
-void dsp_set_xoverfreq(uint8_t, uint8_t, uint32_t ); 
+void dsp_set_xoverfreq(uint8_t, uint8_t, uint32_t );
 
 #endif /* _DSP_PROCESSOR_H_  */

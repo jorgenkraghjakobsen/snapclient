@@ -1,9 +1,9 @@
 /*
-    Wifi related functionality 
-    Connect to pre defined wifi 
+    Wifi related functionality
+    Connect to pre defined wifi
 
-    Must be taken over/merge with wifi provision 
-*/ 
+    Must be taken over/merge with wifi provision
+*/
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -92,12 +92,12 @@ void wifi_init_sta(void)
     } else {
         ESP_LOGE(TAG, "UNEXPECTED EVENT");
     }
-    
+
     uint8_t base_mac[6];
     // Get MAC address for WiFi station
     esp_read_mac(base_mac, ESP_MAC_WIFI_STA);
     sprintf(mac_address, "%02X:%02X:%02X:%02X:%02X:%02X", base_mac[0], base_mac[1], base_mac[2], base_mac[3], base_mac[4], base_mac[5]);
-  
+
 
     //ESP_ERROR_CHECK(esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler));
     //ESP_ERROR_CHECK(esp_event_handler_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler));

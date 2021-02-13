@@ -13,7 +13,7 @@ EventGroupHandle_t s_wifi_event_group;
 
 void event_handler(void* arg, esp_event_base_t event_base,
                                 int32_t event_id, void* event_data);
-                                
+
 void wifi_init_sta(void);
 
-#endif  /* _WIFI_INTERFACE_H_ */ 
+#endif  /* _WIFI_INTERFACE_H_ */
