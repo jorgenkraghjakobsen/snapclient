@@ -54,16 +54,21 @@ audio_board_handle_t board_handle = NULL;
 
 int timeval_subtract(struct timeval *result, struct timeval *x, struct timeval *y);
 
-#define BUFF_LEN 4000
-int32_t port = 0;
+/* snapast parameters; configurable in menuconfig */
+#define SNAPCAST_SERVER_USE_MDNS  CONFIG_SNAPSERVER_USE_MDNS
+#define SNAPCAST_SERVER_HOST      CONFIG_SNAPSERVER_HOST
+#define SNAPCAST_SERVER_PORT      CONFIG_SNAPSERVER_PORT
+#define SNAPCAST_BUFF_LEN         CONFIG_SNAPCLIENT_BUFF_LEN
+#define SNAPCAST_CLIENT_NAME      CONFIG_SNAPCLIENT_NAME
 
+unsigned int addr;
+uint32_t port = SNAPCAST_SERVER_PORT;
 /* Logging tag */
 static const char *TAG = "SNAPCAST";
 
-static char buff[BUFF_LEN];
+static char buff[SNAPCAST_BUFF_LEN];
 
 extern char mac_address[18];
-
 extern EventGroupHandle_t s_wifi_event_group;
 enum codec_type { PCM , FLAC, OGG, OPUS };
 
@@ -110,7 +115,13 @@ static void http_get_task(void *pvParameters)
         xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT,
                             false, true, portMAX_DELAY);
 
-        // Find snapcast server
+		// configure a failsafe snapserver according to CONFIG values
+		servaddr.sin_family = AF_INET;
+		inet_pton(AF_INET, CONFIG_SNAPSERVER_HOST, &(servaddr.sin_addr.s_addr));
+        servaddr.sin_port = htons(CONFIG_SNAPSERVER_PORT);
+
+#ifdef CONFIG_SNAPCLIENT_USE_MDNS
+        // Find snapcast server using mDNS
         // Connect to first snapcast server found
         ESP_LOGI(TAG, "Enable mdns") ;
         mdns_init();
@@ -124,16 +135,21 @@ static void http_get_task(void *pvParameters)
            }
            if(!r){
              ESP_LOGW(TAG, "No results found!");
+			 break;
            }
+		   // mdns config failed, wait 1s and try again
            vTaskDelay(1000/portTICK_PERIOD_MS);
         }
-        ESP_LOGI(TAG,"Found %08x", r->addr->addr.u_addr.ip4.addr);
+		char ip4[INET_ADDRSTRLEN];
+		inet_ntop(AF_INET, &(r->addr->addr.u_addr.ip4.addr), ip4, INET_ADDRSTRLEN);
 
-        servaddr.sin_family = AF_INET;
+        ESP_LOGI(TAG,"Found Snapcast server: %s:%d", ip4, r->port);
         servaddr.sin_addr.s_addr = r->addr->addr.u_addr.ip4.addr;
         servaddr.sin_port = htons(r->port);
         mdns_query_results_free(r);
+#endif
 
+		// servaddr is configured, now open a connection
         sockfd = socket(AF_INET, SOCK_STREAM, 0);
         if(sockfd < 0) {
             ESP_LOGE(TAG, "... Failed to allocate socket.");
@@ -163,24 +179,24 @@ static void http_get_task(void *pvParameters)
 
         bool received_header = false;
         base_message_t base_message = {
-            SNAPCAST_MESSAGE_HELLO,
-            0x0,
-            0x0,
-            { now.tv_sec, now.tv_usec },
-            { 0x0, 0x0 },
-            0x0,
+            SNAPCAST_MESSAGE_HELLO,      // type
+            0x0,                         // id
+            0x0,                         // refersTo
+            { now.tv_sec, now.tv_usec }, // sent
+            { 0x0, 0x0 },                // received
+            0x0,                         // size
         };
 
         hello_message_t hello_message = {
             mac_address,
-            "ESP32-Caster",
-            "0.0.2",
-            "libsnapcast",
-            "esp32",
-            "xtensa",
-            1,
-            mac_address,
-            2,
+            SNAPCAST_CLIENT_NAME,  // hostname
+            "0.0.2",               // client version
+            "libsnapcast",         // client name
+            "esp32",               // os name
+            "xtensa",              // arch
+            1,                     // instance
+            mac_address,           // id
+            2,                     // protocol version
         };
 
         hello_message_serialized = hello_message_serialize(&hello_message, (size_t*) &(base_message.size));
@@ -472,7 +488,7 @@ static void http_get_task(void *pvParameters)
                     continue;
                 }
 
-                result = time_message_serialize(&time_message, buff, BUFF_LEN);
+                result = time_message_serialize(&time_message, buff, SNAPCAST_BUFF_LEN);
                 if (result) {
                     ESP_LOGI(TAG, "Failed to serialize time message\r\b");
                     continue;
