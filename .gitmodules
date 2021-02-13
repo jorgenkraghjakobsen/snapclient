@@ -1,3 +1,6 @@
 [submodule "components/opus/opus"]
 	path = components/opus/opus
 	url = https://github.com/xiph/opus
+[submodule "components/esp-dsp"]
+	path = components/esp-dsp
+	url = https://github.com/espressif/esp-dsp
