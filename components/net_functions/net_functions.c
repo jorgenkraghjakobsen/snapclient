@@ -1,6 +1,6 @@
-/* 
-   Network related functions 
-*/   
+/*
+   Network related functions
+*/
 
 #include <string.h>
 #include "freertos/FreeRTOS.h"
@@ -9,7 +9,7 @@
 #include "esp_system.h"
 #include "esp_event.h"
 #include "esp_log.h"
-#include "esp_wifi.h" 
+#include "esp_wifi.h"
 #include "esp_netif.h"
 #include "mdns.h"
 #include "esp_sntp.h"
@@ -29,7 +29,7 @@ extern EventGroupHandle_t s_wifi_event_group;
 static const char * if_str[] = {"STA", "AP", "ETH", "MAX"};
 static const char * ip_protocol_str[] = {"V4", "V6", "MAX"};
 
-void net_mdns_register(const char * clientname) { 
+void net_mdns_register(const char * clientname) {
     ESP_LOGI(TAG, "Setup mdns");
     ESP_ERROR_CHECK( mdns_init() );
     ESP_ERROR_CHECK( mdns_hostname_set(clientname) );
@@ -92,34 +92,34 @@ uint32_t find_mdns_service(const char * service_name, const char * proto)
       return r->port;
     }
     mdns_query_results_free(r);
-    return 0; 
+    return 0;
 }
 static int sntp_synced = 0;
 
 /*
 void sntp_sync_time(struct timeval *tv_ntp) {
   if ((sntp_synced%10) == 0) {
-    settimeofday(tv_ntp,NULL); 
+    settimeofday(tv_ntp,NULL);
     sntp_synced++;
     ESP_LOGI(TAG,"SNTP time set from server number :%d",sntp_synced);
-    return;   
+    return;
   }
-  sntp_synced++;      
+  sntp_synced++;
   struct timeval tv_esp;
   gettimeofday(&tv_esp, NULL);
   //ESP_LOGI(TAG,"SNTP diff  s: %ld , %ld ", tv_esp.tv_sec , tv_ntp->tv_sec);
   ESP_LOGI(TAG,"SNTP diff us: %ld , %ld ", tv_esp.tv_usec , tv_ntp->tv_usec);
   ESP_LOGI(TAG,"SNTP diff us: %.2f", (double)((tv_esp.tv_usec - tv_ntp->tv_usec)/1000.0));
-    
+
 }*/
 
 void sntp_cb(struct timeval *tv)
 {   struct tm timeinfo = { 0 };
-    time_t now = tv->tv_sec;  
+    time_t now = tv->tv_sec;
     localtime_r(&now, &timeinfo);
     char strftime_buf[64];
     strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
-    ESP_LOGI(TAG, "sntp_cb called :%s", strftime_buf); 
+    ESP_LOGI(TAG, "sntp_cb called :%s", strftime_buf);
 }
 
 void set_time_from_sntp() {
@@ -128,11 +128,11 @@ void set_time_from_sntp() {
     //ESP_LOGI(TAG, "clock %");
     ESP_LOGI(TAG, "Initializing SNTP");
     sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    sntp_setservername(0, "pool.ntp.org");
+	sntp_setservername(0, CONFIG_SNTP_SERVER);
     //sntp_setservername(1, "europe.pool.ntp.org");
 	sntp_init();
     //sntp_set_time_sync_notification_cb(sntp_cb);
-    setenv("TZ", "UTC-1", 1);
+    setenv("TZ", SNTP_TIMEZONE, 1);
     tzset();
 
     time_t now = 0;
@@ -146,8 +146,8 @@ void set_time_from_sntp() {
         localtime_r(&now, &timeinfo);
     }
     char strftime_buf[64];
-    
+
     strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
     ESP_LOGI(TAG, "The current date/time in UTC is: %s", strftime_buf);
-    
+
 }

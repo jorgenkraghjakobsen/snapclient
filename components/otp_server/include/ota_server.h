@@ -11,7 +11,3 @@ void ota_server_task(void *param);
 void ota_server_start_my(void);
 
 extern EventGroupHandle_t ota_event_group;
-
-
-
-

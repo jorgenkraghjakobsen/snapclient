@@ -1,0 +1,41 @@
+menu "Snapcast Configuration"
+
+    config SNAPSERVER_USE_MDNS
+        string "Use mDNS"
+        default true
+        help
+            Use mDNS to look for the snapserver to connect to on the local network.
+
+    config SNAPSERVER_HOST
+        string "Snapserver host"
+        default "192.168.1.158"
+        help
+            Host (ip or name) of snapserver to connect to is mDNS is disabled or the mDNS resolution fails.
+
+    config SNAPSERVER_PORT
+        int "Snapserver port"
+        default 1704
+        help
+            Port of the snapserver to connect to.
+
+    config SNAPCLIENT_BUFF_LEN
+        int "snapcast buffer len"
+        default 4000
+        help
+            Size of the snapclient buffer (in bytes).
+
+    config SNAPCLIENT_NAME
+        string "snapclient name"
+        default "esp-snapclient"
+        help
+            Name of the client to register the snapserver.
+endmenu
+
+menu "SNTP Configuration"
+
+    config SNPACLIENT_SNTP_ENABLE
+        string "Enable SNTP"
+        default true
+        help
+            Enable the srtup of RTC time using the SNTP protocol.
+endmenu

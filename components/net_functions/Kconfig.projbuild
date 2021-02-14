@@ -1,0 +1,14 @@
+menu "SNTP Configuration"
+
+    config SNTP_TIMEZONE
+        string "SNTP timezone"
+        default "UTC"
+        help
+            Timezone used for the SNTP configuration.
+
+    config SNTP_SERVER
+        string "SNTP server"
+        default "pool.ntp.org"
+        help
+            SNTP server to use to synchronize time from.
+endmenu

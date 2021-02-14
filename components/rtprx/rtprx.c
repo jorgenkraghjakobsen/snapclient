@@ -65,7 +65,7 @@ void rtp_rx_task(void *pvParameters){
   static uint32_t pkgerror = 0;
   err_t err;
   uint16_t oldseq = 1;
-  uint16_t first = 1; 
+  uint16_t first = 1;
   conn = netconn_new(NETCONN_UDP);
   if (conn!=NULL)
   { printf("Net RTP RX\n");
@@ -74,29 +74,29 @@ void rtp_rx_task(void *pvParameters){
     printf("Net RTP will enter loopn\n");
     while (1) {
       netconn_recv(conn,&buf);
-      if (buf == NULL) 
+      if (buf == NULL)
       { printf("NETCONN RX error \n"); }
       pkg++;
-      
+
       uint8_t *p = (buf->p->payload);
       uint16_t seq =  (p[2]<<8)+p[3];
       if ( (seq!=oldseq+1) & (first != 1) )
       { printf("seq : %d, oldseq : %d \n",seq,oldseq);
         uint16_t errors = seq-oldseq-1;
         pkgerror = pkgerror + errors;
-        printf("ERROR --- Package drop : %d  %d \n",errors, pkgerror);  
+        printf("ERROR --- Package drop : %d  %d \n",errors, pkgerror);
         size_t bWritten;
         //for (int i = 0; i;i++ )
         int ret = i2s_write_expand(0, (char*)audio, 960*2*sizeof(int16_t),16,32, &bWritten, 100);
         printf("bWritten : %d  ret : %d \n ",bWritten,ret);
-         
+
         //opus_pkg = NULL;
       }
-        
+
       if (seq<oldseq)
       { printf("ERROR --- Packege order:"); }
       oldseq = seq;
-      first = 0; 
+      first = 0;
       //printf("UDP package len : %d ->  \n", buf->p->len);
       //printf("UDP package     : %02x %02x %02x %02x\n",p[0],p[1],p[2],p[3]);
       //printf("Timestamp       : %02x %02x %02x %02x\n",p[4],p[5],p[6],p[7]);
@@ -110,7 +110,7 @@ void rtp_rx_task(void *pvParameters){
 
       //for (int i = 0; i < size*2; i++) {
       //  audio[i*2]   = 0x0000;
-      //  audio[i*2+1] = 0x0000; 
+      //  audio[i*2+1] = 0x0000;
       //}
 
       size_t bWritten;
@@ -129,7 +129,7 @@ void rtp_rx_task(void *pvParameters){
         for (int i=0;i<8;i++)
           printf("%02d %04x %04x\n",i,audio[2*i],audio[2*i+1]);
       }
-      
+
       //netbuf_free(buf);
       netbuf_delete(buf);
     }
@@ -145,7 +145,7 @@ void setup_rtp_i2s()
     .sample_rate = 48000,
     .bits_per_sample = 32,
     .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,                           //2-channels
-    .communication_format = I2S_COMM_FORMAT_I2S,  
+    .communication_format = I2S_COMM_FORMAT_I2S,
     .dma_buf_count = 8,
     .dma_buf_len = 480,
     //.intr_alloc_flags = 1,                                                  //Default interrupt priority
