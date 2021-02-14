@@ -18,6 +18,11 @@
 #include "hal/i2s_hal.h"
 //#include "adc1_i2s_private.h"
 
+#ifdef CONFIG_USE_BIQUAD_ASM
+  #define BIQUAD dsps_biquad_f32_ae32 
+#else 
+  #define BIQUAD dsps_biquad_f32
+#endif  
 
 uint32_t bits_per_sample = CONFIG_BITS_PER_SAMPLE;
 
@@ -337,9 +342,9 @@ static void dsp_i2s_task_handler(void *arg)
             break;
           case dspfBassBoost :
             {  // CH0 low shelf 6dB @ 400Hz
-               dsps_biquad_f32(sbuffer0, sbufout0, len , bq[6].coeffs, bq[6].w);
-               dsps_biquad_f32(sbuffer1, sbufout1, len , bq[7].coeffs, bq[7].w);
-               int16_t valint[2];
+               BIQUAD(sbuffer0, sbufout0, len , bq[6].coeffs, bq[6].w);
+               BIQUAD(sbuffer1, sbufout1, len , bq[7].coeffs, bq[7].w);
+               int16_t valint[2]; 
                for (uint16_t i=0; i<len; i++)
                { valint[0] = (muteCH[0] == 1) ? (int16_t) 0 : (int16_t) (sbufout0[i]*32768);
                  valint[1] = (muteCH[1] == 1) ? (int16_t) 0 : (int16_t) (sbufout1[i]*32768);
@@ -363,15 +368,15 @@ static void dsp_i2s_task_handler(void *arg)
                   //printf("%d %d \n",byteWritten, i2s_evt.size );
               }
               // Process audio ch0 LOW PASS FILTER
-              dsps_biquad_f32(sbuffer0, sbuftmp0, len, bq[0].coeffs, bq[0].w);
-              dsps_biquad_f32(sbuftmp0, sbufout0, len, bq[1].coeffs, bq[1].w);
-
+              BIQUAD(sbuffer0, sbuftmp0, len, bq[0].coeffs, bq[0].w);
+              BIQUAD(sbuftmp0, sbufout0, len, bq[1].coeffs, bq[1].w);
+ 
               // Process audio ch1 HIGH PASS FILTER
-              dsps_biquad_f32(sbuffer0, sbuftmp0, len, bq[2].coeffs, bq[2].w);
-              dsps_biquad_f32(sbuftmp0, sbufout1, len, bq[3].coeffs, bq[3].w);
-
+              BIQUAD(sbuffer0, sbuftmp0, len, bq[2].coeffs, bq[2].w);
+              BIQUAD(sbuftmp0, sbufout1, len, bq[3].coeffs, bq[3].w);
+ 
               int16_t valint[2];
-              for (uint16_t i=0; i<len; i++)
+              for (uint16_t i=0; i<len; i++) 
               { valint[0] = (muteCH[0] == 1) ? (int16_t) 0 : (int16_t) (sbufout0[i]*32768);
                 valint[1] = (muteCH[1] == 1) ? (int16_t) 0 : (int16_t) (sbufout1[i]*32768);
                 dsp_audio[i*4+0] = (valint[0] & 0xff);
@@ -389,17 +394,17 @@ static void dsp_i2s_task_handler(void *arg)
 
           case dspf2DOT1 :
             { // Process audio L + R LOW PASS FILTER
-              dsps_biquad_f32(sbuffer2, sbuftmp0, len, bq[0].coeffs, bq[0].w);
-              dsps_biquad_f32(sbuftmp0, sbufout2, len, bq[1].coeffs, bq[1].w);
-
+              BIQUAD(sbuffer2, sbuftmp0, len, bq[0].coeffs, bq[0].w);
+              BIQUAD(sbuftmp0, sbufout2, len, bq[1].coeffs, bq[1].w);
+ 
               // Process audio L HIGH PASS FILTER
-              dsps_biquad_f32(sbuffer0, sbuftmp0, len, bq[2].coeffs, bq[2].w);
-              dsps_biquad_f32(sbuftmp0, sbufout0, len, bq[3].coeffs, bq[3].w);
-
+              BIQUAD(sbuffer0, sbuftmp0, len, bq[2].coeffs, bq[2].w);
+              BIQUAD(sbuftmp0, sbufout0, len, bq[3].coeffs, bq[3].w);
+ 
               // Process audio R HIGH PASS FILTER
-              dsps_biquad_f32(sbuffer1, sbuftmp0, len, bq[4].coeffs, bq[4].w);
-              dsps_biquad_f32(sbuftmp0, sbufout1, len, bq[5].coeffs, bq[5].w);
-
+              BIQUAD(sbuffer1, sbuftmp0, len, bq[4].coeffs, bq[4].w);
+              BIQUAD(sbuftmp0, sbufout1, len, bq[5].coeffs, bq[5].w);
+ 
               int16_t valint[5];
               for (uint16_t i=0; i<len; i++)
               { valint[0] = (muteCH[0] == 1) ? (int16_t) 0 : (int16_t) (sbufout0[i]*32768);
@@ -421,17 +426,17 @@ static void dsp_i2s_task_handler(void *arg)
             break;
           case dspfFunkyHonda :
             { // Process audio L + R LOW PASS FILTER
-              dsps_biquad_f32(sbuffer2, sbuftmp0, len, bq[0].coeffs, bq[0].w);
-              dsps_biquad_f32(sbuftmp0, sbufout2, len, bq[1].coeffs, bq[1].w);
-
+              BIQUAD(sbuffer2, sbuftmp0, len, bq[0].coeffs, bq[0].w);
+              BIQUAD(sbuftmp0, sbufout2, len, bq[1].coeffs, bq[1].w);
+ 
               // Process audio L HIGH PASS FILTER
-              dsps_biquad_f32(sbuffer0, sbuftmp0, len, bq[2].coeffs, bq[2].w);
-              dsps_biquad_f32(sbuftmp0, sbufout0, len, bq[3].coeffs, bq[3].w);
-
+              BIQUAD(sbuffer0, sbuftmp0, len, bq[2].coeffs, bq[2].w);
+              BIQUAD(sbuftmp0, sbufout0, len, bq[3].coeffs, bq[3].w);
+ 
               // Process audio R HIGH PASS FILTER
-              dsps_biquad_f32(sbuffer1, sbuftmp0, len, bq[4].coeffs, bq[4].w);
-              dsps_biquad_f32(sbuftmp0, sbufout1, len, bq[5].coeffs, bq[5].w);
-
+              BIQUAD(sbuffer1, sbuftmp0, len, bq[4].coeffs, bq[4].w);
+              BIQUAD(sbuftmp0, sbufout1, len, bq[5].coeffs, bq[5].w);
+ 
               uint16_t scale = 16384;  //32768
               int16_t valint[5];
               for (uint16_t i=0; i<len; i++)

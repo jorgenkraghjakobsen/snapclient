@@ -12,7 +12,13 @@ menu "ESP32 audio buffer and I2S pin config"
         default 32
         help 
            Select number of bits per sample for codec configed and connected to esp32 i2s dma hw
-               
+    
+    config USE_BIQUAD_ASM   
+        bool "Use uptimized asm verion of Biquad_f32"  
+        default true
+        help 
+            Asm version 2 x speed on ESP32 - not working on ESP32-S2 
+
     config MASTER_I2S_BCK_PIN
         int "Master i2s bck"
         default 23

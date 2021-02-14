@@ -2,7 +2,7 @@ menu "Snapcast Configuration"
 
     config SNAPSERVER_USE_MDNS
         string "Use mDNS"
-        default true
+        default "true"
         help
             Use mDNS to look for the snapserver to connect to on the local network.
 
@@ -33,9 +33,9 @@ endmenu
 
 menu "SNTP Configuration"
 
-    config SNPACLIENT_SNTP_ENABLE
+    config SNAPCLIENT_SNTP_ENABLE
         string "Enable SNTP"
-        default true
+        default "true"
         help
             Enable the srtup of RTC time using the SNTP protocol.
 endmenu
