@@ -1,8 +1,8 @@
 menu "Snapcast Configuration"
 
     config SNAPSERVER_USE_MDNS
-        string "Use mDNS"
-        default "true"
+        bool "Use mDNS"
+        default true
         help
             Use mDNS to look for the snapserver to connect to on the local network.
 
@@ -10,7 +10,7 @@ menu "Snapcast Configuration"
         string "Snapserver host"
         default "192.168.1.158"
         help
-            Host (ip or name) of snapserver to connect to is mDNS is disabled or the mDNS resolution fails.
+            Host (ip or name) of snapserver to connect to if mDNS is disabled or the mDNS resolution fails.
 
     config SNAPSERVER_PORT
         int "Snapserver port"
@@ -33,9 +33,9 @@ endmenu
 
 menu "SNTP Configuration"
 
-    config SNAPCLIENT_SNTP_ENABLE
-        string "Enable SNTP"
-        default "true"
+    config SNPACLIENT_SNTP_ENABLE
+        bool "Enable SNTP"
+        default true
         help
-            Enable the srtup of RTC time using the SNTP protocol.
+            Enable the setup of RTC time using the SNTP protocol.
 endmenu

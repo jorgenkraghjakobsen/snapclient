@@ -17,12 +17,13 @@
 #include "driver/dac.h"
 #include "hal/i2s_hal.h"
 //#include "adc1_i2s_private.h"
+#include "board_pins_config.h"
 
 #ifdef CONFIG_USE_BIQUAD_ASM
-  #define BIQUAD dsps_biquad_f32_ae32 
-#else 
+  #define BIQUAD dsps_biquad_f32_ae32
+#else
   #define BIQUAD dsps_biquad_f32
-#endif  
+#endif
 
 uint32_t bits_per_sample = CONFIG_BITS_PER_SAMPLE;
 
@@ -57,42 +58,34 @@ void setup_dsp_i2s(uint32_t sample_rate, bool slave_i2s)
     .tx_desc_auto_clear = true                                              // Auto clear tx descriptor on underflow
   };
 
-  i2s_pin_config_t pin_config0 = {
-    .bck_io_num   = CONFIG_MASTER_I2S_BCK_PIN,
-    .ws_io_num    = CONFIG_MASTER_I2S_LRCK_PIN,
-    .data_out_num = CONFIG_MASTER_I2S_DATAOUT_PIN,
-    .data_in_num  = -1                                                       //Not used
-  };
+  i2s_pin_config_t pin_config0;
+  get_i2s_pins(I2S_NUM_0, &pin_config0);
 
   i2s_driver_install(0, &i2s_config0, 7, &i2s_queue);
   i2s_zero_dma_buffer(0);
   i2s_set_pin(0, &pin_config0);
-  gpio_set_drive_capability(CONFIG_MASTER_I2S_BCK_PIN,0);
-  gpio_set_drive_capability(CONFIG_MASTER_I2S_LRCK_PIN,0);
-  gpio_set_drive_capability(CONFIG_MASTER_I2S_DATAOUT_PIN,0);
-
-  i2s_config_t i2s_config1 = {
-    .mode = I2S_MODE_SLAVE | I2S_MODE_TX,                                   // Only TX - Slave channel
-    .sample_rate = sample_rate,
-    .bits_per_sample = bits_per_sample,
-    .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,                           // 2-channels
-    .communication_format = I2S_COMM_FORMAT_I2S,
-    .dma_buf_count = 8,
-    .dma_buf_len = 480,
-    .use_apll = true,
-    .fixed_mclk = 0,
-    .tx_desc_auto_clear = true                                              // Auto clear tx descriptor on underflow
-  };
-
-  i2s_pin_config_t pin_config1 = {
-    .bck_io_num   =  CONFIG_SLAVE_I2S_BCK_PIN,
-    .ws_io_num    =  CONFIG_SLAVE_I2S_LRCK_PIN,
-    .data_out_num =  CONFIG_SLAVE_I2S_DATAOUT_PIN,
-    .data_in_num = -1                                                       //Not used
-  };
+  /* is this needed?
+  gpio_set_drive_capability(CONFIG_MASTER_I2S_BCK_PIN, 0);
+  gpio_set_drive_capability(CONFIG_MASTER_I2S_LRCK_PIN, 0);
+  gpio_set_drive_capability(CONFIG_MASTER_I2S_DATAOUT_PIN, 0);
+  */
 
   if (slave_i2s) {
-    i2s_driver_install(1, &i2s_config1, 7, &i2s_queue);
+    i2s_config_t i2s_config1 = {
+      .mode = I2S_MODE_SLAVE | I2S_MODE_TX,                                   // Only TX - Slave channel
+      .sample_rate = sample_rate,
+      .bits_per_sample = bits_per_sample,
+      .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,                           // 2-channels
+      .communication_format = I2S_COMM_FORMAT_I2S,
+      .dma_buf_count = 8,
+      .dma_buf_len = 480,
+      .use_apll = true,
+      .fixed_mclk = 0,
+      .tx_desc_auto_clear = true                                              // Auto clear tx descriptor on underflow
+    };
+    i2s_pin_config_t pin_config1;
+    get_i2s_pins(I2S_NUM_1, &pin_config1);
+	i2s_driver_install(I2S_NUM_1, &i2s_config1, 7, &i2s_queue);
     i2s_zero_dma_buffer(1);
     i2s_set_pin(1, &pin_config1);
   }
@@ -344,7 +337,7 @@ static void dsp_i2s_task_handler(void *arg)
             {  // CH0 low shelf 6dB @ 400Hz
                BIQUAD(sbuffer0, sbufout0, len , bq[6].coeffs, bq[6].w);
                BIQUAD(sbuffer1, sbufout1, len , bq[7].coeffs, bq[7].w);
-               int16_t valint[2]; 
+               int16_t valint[2];
                for (uint16_t i=0; i<len; i++)
                { valint[0] = (muteCH[0] == 1) ? (int16_t) 0 : (int16_t) (sbufout0[i]*32768);
                  valint[1] = (muteCH[1] == 1) ? (int16_t) 0 : (int16_t) (sbufout1[i]*32768);
@@ -370,13 +363,13 @@ static void dsp_i2s_task_handler(void *arg)
               // Process audio ch0 LOW PASS FILTER
               BIQUAD(sbuffer0, sbuftmp0, len, bq[0].coeffs, bq[0].w);
               BIQUAD(sbuftmp0, sbufout0, len, bq[1].coeffs, bq[1].w);
- 
+
               // Process audio ch1 HIGH PASS FILTER
               BIQUAD(sbuffer0, sbuftmp0, len, bq[2].coeffs, bq[2].w);
               BIQUAD(sbuftmp0, sbufout1, len, bq[3].coeffs, bq[3].w);
- 
+
               int16_t valint[2];
-              for (uint16_t i=0; i<len; i++) 
+              for (uint16_t i=0; i<len; i++)
               { valint[0] = (muteCH[0] == 1) ? (int16_t) 0 : (int16_t) (sbufout0[i]*32768);
                 valint[1] = (muteCH[1] == 1) ? (int16_t) 0 : (int16_t) (sbufout1[i]*32768);
                 dsp_audio[i*4+0] = (valint[0] & 0xff);
@@ -396,15 +389,15 @@ static void dsp_i2s_task_handler(void *arg)
             { // Process audio L + R LOW PASS FILTER
               BIQUAD(sbuffer2, sbuftmp0, len, bq[0].coeffs, bq[0].w);
               BIQUAD(sbuftmp0, sbufout2, len, bq[1].coeffs, bq[1].w);
- 
+
               // Process audio L HIGH PASS FILTER
               BIQUAD(sbuffer0, sbuftmp0, len, bq[2].coeffs, bq[2].w);
               BIQUAD(sbuftmp0, sbufout0, len, bq[3].coeffs, bq[3].w);
- 
+
               // Process audio R HIGH PASS FILTER
               BIQUAD(sbuffer1, sbuftmp0, len, bq[4].coeffs, bq[4].w);
               BIQUAD(sbuftmp0, sbufout1, len, bq[5].coeffs, bq[5].w);
- 
+
               int16_t valint[5];
               for (uint16_t i=0; i<len; i++)
               { valint[0] = (muteCH[0] == 1) ? (int16_t) 0 : (int16_t) (sbufout0[i]*32768);
@@ -428,15 +421,15 @@ static void dsp_i2s_task_handler(void *arg)
             { // Process audio L + R LOW PASS FILTER
               BIQUAD(sbuffer2, sbuftmp0, len, bq[0].coeffs, bq[0].w);
               BIQUAD(sbuftmp0, sbufout2, len, bq[1].coeffs, bq[1].w);
- 
+
               // Process audio L HIGH PASS FILTER
               BIQUAD(sbuffer0, sbuftmp0, len, bq[2].coeffs, bq[2].w);
               BIQUAD(sbuftmp0, sbufout0, len, bq[3].coeffs, bq[3].w);
- 
+
               // Process audio R HIGH PASS FILTER
               BIQUAD(sbuffer1, sbuftmp0, len, bq[4].coeffs, bq[4].w);
               BIQUAD(sbuftmp0, sbufout1, len, bq[5].coeffs, bq[5].w);
- 
+
               uint16_t scale = 16384;  //32768
               int16_t valint[5];
               for (uint16_t i=0; i<len; i++)

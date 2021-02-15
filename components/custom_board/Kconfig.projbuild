@@ -1,0 +1,111 @@
+menu "Custom Audio Board"
+    depends on AUDIO_BOARD_CUSTOM
+
+    choice GENERIC_BOARD_DAC
+        prompt "DAC chip"
+        default DAC_MERUS
+        help
+            Select a DAC connected to the generic ESP32 board
+
+        config DAC_PCM51XX
+            bool "TI PCM51XX/TAS57XX based DAC"
+
+        config DAC_MERUS
+            bool "Infineon MerusAudio based DAC"
+
+    endchoice
+
+	menu "DAC I2C control interface"
+    	config DAC_I2C_SDA
+        	int "SDA pin"
+        	default 21
+        	help
+        	    I2C SDA pin of the DAC control interface
+    	config DAC_I2C_SCL
+        	int "SCL pin"
+        	default 22
+        	help
+        	    I2C SCL pin of the DAC control interface
+    	config DAC_I2C_ADDR
+        	hex "I2C address"
+        	default 0x20
+        	help
+        	    I2C Address of the DAC control interface
+    endmenu
+
+	menu "I2S master interface"
+        config MASTER_I2S_BCK_PIN
+            int "Master i2s bck"
+            default 23
+            help
+                Master audio interface bit clock.
+
+        config MASTER_I2S_LRCK_PIN
+            int "Master i2s lrck"
+            default 13
+            help
+                Master audio interface left/right sync clock.
+
+        config MASTER_I2S_DATAOUT_PIN
+            int "Master i2s data out"
+            default 14
+            help
+                Master audio interface data out.
+    endmenu
+
+	menu "I2S slave interface"
+
+        config SLAVE_I2S_BCK_PIN
+            int "Slave i2s bck"
+            default 26
+            help
+                Slave audio interface bit clock.
+
+        config SLAVE_I2S_LRCK_PIN
+            int "Slave i2s lrck"
+            default 12
+            help
+                Slave audio interface left/right sync clock.
+
+        config SLAVE_I2S_DATAOUT_PIN
+            int "Slave i2s data out"
+            default 5
+            help
+                Slave audio interface data out.
+        endmenu
+
+	menu "Merus MA120x0 interface Configuration"
+		 depends on DAC_MA120X0
+
+		 config MA120X0_NENABLE_PIN
+             int "Master enable/disable for ma120x0"
+             default 16
+             help
+		         GPIO number to control enable/disable.
+
+         config MA120X0_NMUTE_PIN
+             int "Master mute/unmute for ma120x0"
+             default 2
+             help
+                 GPIO number to controm mute/unmute.
+
+         config MA120X0_ENABLE_PIN
+             int "Master enable/disable for ma120x0"
+             default 16
+             help
+                 GPIO number to control enable/disable.
+
+         config MA120X0_NERR_PIN
+             int "NERR monitor pin"
+             default 21
+             help
+                 GPIO number to monitor NERROR.
+
+         config MA120X0_NCLIP_PIN
+             int "Clip indication pin"
+             default 22
+             help
+                 GPIO number low if clip observed
+     endmenu
+
+endmenu

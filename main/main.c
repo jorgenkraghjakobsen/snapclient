@@ -34,8 +34,6 @@
 #include "opus.h"
 
 #include "driver/i2s.h"
-#include "rtprx.h"
-#include "MerusAudio.h"
 #include "dsp_processor.h"
 #include "snapcast.h"
 
@@ -419,12 +417,7 @@ static void http_get_task(void *pvParameters)
                       xQueueSend(flow_queue,&client_state_muted, 10);
                     }
                     // Volume setting using ADF HAL abstraction
-                    //audio_hal_set_volume(board_handle->audio_hal,server_settings_message.volume);
-                    // move this implemntation to a Merus Audio hal
-                    uint8_t cmd[4];
-                    cmd[0] = 128-server_settings_message.volume  ;
-                    cmd[1] = cmd[0];
-                    ma_write(0x20,2,0x0003,cmd,2);
+                    audio_hal_set_volume(board_handle->audio_hal,server_settings_message.volume);
 					break;
 
                 case SNAPCAST_MESSAGE_TIME:
@@ -512,35 +505,17 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
-    // if lyra or custom
-    //board_handle = audio_board_init();
-    //audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_BOTH, AUDIO_HAL_CTRL_START);
-    //i2s_mclk_gpio_select(0,0);
+	ESP_LOGI(TAG, "Start codec chip");
+    board_handle = audio_board_init();
+    audio_hal_ctrl_codec(
+		board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_BOTH, AUDIO_HAL_CTRL_START);
+    i2s_mclk_gpio_select(0, 0);
 
-    //audio_hal_set_volume(board_handle->audio_hal,5);
-
-    setup_ma120();
-    //ma120_setup_audio(0x20);
-    //setup_ma120x0();
-
-    uint8_t rxbuf[12];
-    ma_read(0x20,2,0x0003, rxbuf,3);
-    printf("\nVolume : 0x%02x 0x%02x 0x%02x\n",rxbuf[0], rxbuf[1], rxbuf[2] );
-    ma_write_byte(0x20,2,0x608, 51);
+    // ma_write_byte(0x20,2,0x608, 51); // XXX what's this for?
 
     dsp_setup_flow(500, 48000);
-    // LYra_4.3 wrover
-    //           27      I2S_DO
-    //   25      25      I2S_WS
-    //   5       32      I2S_SCK
-    //   26      TDI     I2S_DI
-    //           4       I2C_SDA
-    //           0       I2C_SCL
-    //           2       NMUTE
-    //           16      ENABLE
 
     // Enable and setup WIFI in station mode  and connect to Access point setup in menu config
-
     wifi_init_sta();
     net_mdns_register("snapclient");
 #ifdef CONFIG_SNAPCLIENT_SNTP_ENABLE
