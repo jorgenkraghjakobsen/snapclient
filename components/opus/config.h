@@ -48,7 +48,7 @@
 
 /* Define to 1 if you have the `lrint' function. */
 /* #undef HAVE_LRINT */
-#define  HAVE_LRINT 1
+#define HAVE_LRINT 1
 /* Define to 1 if you have the `lrintf' function. */
 /* #undef HAVE_LRINTF */
 #define HAVE_LRINTF 1
@@ -203,6 +203,6 @@
    previous line.  Perhaps some future version of Sun C++ will work with
    restrict; if so, hopefully it defines __RESTRICT like Sun C does.  */
 #if defined __SUNPRO_CC && !defined __RESTRICT
-# define _Restrict
-# define __restrict__
+#define _Restrict
+#define __restrict__
 #endif

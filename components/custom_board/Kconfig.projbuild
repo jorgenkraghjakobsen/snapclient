@@ -12,10 +12,10 @@ menu "Custom Audio Board"
 
         config DAC_MA120
             bool "Infineon MA120 ClassD AMP"
-        
+
         config DAC_MA120X0
             bool "Infineon MA120X0 ClassD AMP"
-            
+
 
     endchoice
 
@@ -105,7 +105,7 @@ menu "Custom Audio Board"
              help
                  GPIO number low if clip observed
      endmenu
-     
+
      menu "Merus MA120 interface Configuration"
 		 depends on DAC_MA120
 
