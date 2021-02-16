@@ -6,4 +6,3 @@
 PROJECT_NAME := snapclient
 
 include $(IDF_PATH)/make/project.mk
-
