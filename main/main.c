@@ -335,9 +335,9 @@ static void http_get_task(void *pvParameters) {
           }
           size = wire_chunk_message.size;
           start = (wire_chunk_message.payload);
+          int frame_size = 0;
           switch (codec) {
             case OPUS:
-              int frame_size = 0;
               while ((frame_size = opus_decode(decoder, (unsigned char *)start,
                                                size, (opus_int16 *)audio,
                                                pcm_size / channels, 0)) ==
