@@ -511,8 +511,6 @@ void app_main(void)
 		board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_BOTH, AUDIO_HAL_CTRL_START);
     i2s_mclk_gpio_select(0, 0);
 
-    // ma_write_byte(0x20,2,0x608, 51); // XXX what's this for?
-
     dsp_setup_flow(500, 48000);
 
     // Enable and setup WIFI in station mode  and connect to Access point setup in menu config
@@ -540,5 +538,4 @@ void app_main(void)
         }
 
        }
-
 }

@@ -64,12 +64,10 @@ void setup_dsp_i2s(uint32_t sample_rate, bool slave_i2s)
   i2s_driver_install(0, &i2s_config0, 7, &i2s_queue);
   i2s_zero_dma_buffer(0);
   i2s_set_pin(0, &pin_config0);
-  /* is this needed?
   gpio_set_drive_capability(CONFIG_MASTER_I2S_BCK_PIN, 0);
   gpio_set_drive_capability(CONFIG_MASTER_I2S_LRCK_PIN, 0);
   gpio_set_drive_capability(CONFIG_MASTER_I2S_DATAOUT_PIN, 0);
-  */
-
+  
   if (slave_i2s) {
     i2s_config_t i2s_config1 = {
       .mode = I2S_MODE_SLAVE | I2S_MODE_TX,                                   // Only TX - Slave channel
@@ -85,7 +83,7 @@ void setup_dsp_i2s(uint32_t sample_rate, bool slave_i2s)
     };
     i2s_pin_config_t pin_config1;
     get_i2s_pins(I2S_NUM_1, &pin_config1);
-	i2s_driver_install(I2S_NUM_1, &i2s_config1, 7, &i2s_queue);
+	  i2s_driver_install(I2S_NUM_1, &i2s_config1, 7, &i2s_queue);
     i2s_zero_dma_buffer(1);
     i2s_set_pin(1, &pin_config1);
   }

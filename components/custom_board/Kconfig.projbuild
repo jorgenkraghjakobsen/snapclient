@@ -3,15 +3,19 @@ menu "Custom Audio Board"
 
     choice GENERIC_BOARD_DAC
         prompt "DAC chip"
-        default DAC_MERUS
+        default DAC_MA120
         help
             Select a DAC connected to the generic ESP32 board
 
         config DAC_PCM51XX
             bool "TI PCM51XX/TAS57XX based DAC"
 
-        config DAC_MERUS
-            bool "Infineon MerusAudio based DAC"
+        config DAC_MA120
+            bool "Infineon MA120 ClassD AMP"
+        
+        config DAC_MA120X0
+            bool "Infineon MA120X0 ClassD AMP"
+            
 
     endchoice
 
@@ -89,19 +93,41 @@ menu "Custom Audio Board"
              help
                  GPIO number to controm mute/unmute.
 
-         config MA120X0_ENABLE_PIN
-             int "Master enable/disable for ma120x0"
-             default 16
-             help
-                 GPIO number to control enable/disable.
-
-         config MA120X0_NERR_PIN
+         config MERUS_NERR_PIN
              int "NERR monitor pin"
              default 21
              help
                  GPIO number to monitor NERROR.
 
-         config MA120X0_NCLIP_PIN
+         config MERUS_NCLIP_PIN
+             int "Clip indication pin"
+             default 22
+             help
+                 GPIO number low if clip observed
+     endmenu
+     
+     menu "Merus MA120 interface Configuration"
+		 depends on DAC_MA120
+
+		 config MA120_ENABLE_PIN
+             int "Master enable/disable for ma120x0"
+             default 16
+             help
+		         GPIO number to control enable/disable.
+
+         config MA120_NMUTE_PIN
+             int "Master mute/unmute for ma120x0"
+             default 2
+             help
+                 GPIO number to controm mute/unmute.
+
+         config MERUS_NERR_PIN
+             int "NERR monitor pin"
+             default 21
+             help
+                 GPIO number to monitor NERROR.
+
+         config MERUS_NCLIP_PIN
              int "Clip indication pin"
              default 22
              help

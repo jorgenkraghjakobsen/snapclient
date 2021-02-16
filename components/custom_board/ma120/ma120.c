@@ -1,10 +1,10 @@
 //
-// MA120x0P ESP32 Driver
+// MA120 ESP32 Driver
 //
 // Merus Audio - September 2018
 // Written by Joergen Kragh Jakobsen, jkj@myrun.dk
 //
-// Register interface thrugh I2C for MA12070P and MA12040P
+// Register interface thrugh I2C for MA120 
 //   Support a single amplifier/i2c address
 //
 //
@@ -14,19 +14,19 @@
 #include "esp_log.h"
 #include "driver/i2c.h"
 
+#include "board.h"
+
 #include "MerusAudio.h"
 
-#include "ma120x0.h"
+//#include "ma120x0.h"
 //#include "ma120_rev1_all.h"
 
-static const char *TAG = "MA120X0";
+static const char *TAG = "MA120";
 
-#define MA_NENABLE_IO  CONFIG_MA120X0_NENABLE_PIN
-#define MA_ENABLE_IO   CONFIG_MA120X0_ENABLE_PIN
-#define MA_NMUTE_IO    CONFIG_MA120X0_NMUTE_PIN
-#define MA_NERR_IO     CONFIG_MA120X0_NERR_PIN
-#define MA_NCLIP_IO    CONFIG_MA120X0_NCLIP_PIN
-
+#define MA_ENABLE_IO   CONFIG_MA120_ENABLE_PIN
+#define MA_NMUTE_IO    CONFIG_MA120_NMUTE_PIN
+#define MA_NERR_IO     CONFIG_MERUS_NERR_PIN
+#define MA_NCLIP_IO    CONFIG_MERUS_NCLIP_PIN
 
 static const char* I2C_TAG = "i2c";
 #define I2C_CHECK(a, str, ret)  if(!(a)) {                                             \
@@ -39,7 +39,7 @@ static const char* I2C_TAG = "i2c";
 #define I2C_MASTER_RX_BUF_DISABLE   0   /*!< I2C master do not need buffer */
 #define I2C_MASTER_FREQ_HZ    100000     /*!< I2C master clock frequency */
 
-#define MA120X0_ADDR  CONFIG_DAC_I2C_ADDR  /*!< slave address for MA120X0 amplifier */
+#define MA120_ADDR  CONFIG_DAC_I2C_ADDR  /*!< slave address for MA120 amplifier */
 
 #define WRITE_BIT  I2C_MASTER_WRITE /*!< I2C master write */
 #define READ_BIT   I2C_MASTER_READ  /*!< I2C master read */
@@ -49,65 +49,60 @@ static const char* I2C_TAG = "i2c";
 #define NACK_VAL   0x1         /*!< I2C nack value */
 
 
-static i2c_config_t i2c_cfg;
 
-audio_hal_func_t AUDIO_CODEC_MA120X0_DEFAULT_HANDLE = {
-    .audio_codec_initialize = ma120x0_init,
-    .audio_codec_deinitialize = ma120x0_deinit,
-    .audio_codec_ctrl = ma120x0_ctrl,
-    .audio_codec_config_iface = ma120x0_config_iface,
-    .audio_codec_set_mute = ma120x0_set_mute,
-    .audio_codec_set_volume = ma120x0_set_volume,
-    .audio_codec_get_volume = ma120x0_get_volume,
+audio_hal_func_t AUDIO_CODEC_MA120_DEFAULT_HANDLE = {
+    .audio_codec_initialize = ma120_init,
+    .audio_codec_deinitialize = ma120_deinit,
+    .audio_codec_ctrl = ma120_ctrl,
+    .audio_codec_config_iface = NULL,
+    .audio_codec_set_mute = ma120_set_mute,
+    .audio_codec_set_volume = ma120_set_volume,
+    .audio_codec_get_volume = ma120_get_volume,
     .audio_hal_lock = NULL,
     .handle = NULL,
 };
 
-esp_err_t ma120x0_deinit(void)
+esp_err_t ma120_deinit(void)
 {
     // TODO
     return ESP_OK;
 }
 
-esp_err_t ma120x0_ctrl(audio_hal_codec_mode_t mode, audio_hal_ctrl_t ctrl_state)
+esp_err_t ma120_ctrl(audio_hal_codec_mode_t mode, audio_hal_ctrl_t ctrl_state)
 {
     // TODO
     return ESP_OK;
 }
 
-esp_err_t ma120x0_config_iface(audio_hal_codec_mode_t mode, audio_hal_codec_i2s_iface_t *iface)
-{
-    //TODO
-    return ESP_OK;
-}
-
-esp_err_t ma120x0_set_volume(int vol)
+esp_err_t ma120_set_volume(int vol)
 {
 	esp_err_t ret = ESP_OK;
-	uint8_t cmd;
-	cmd = 128-vol;
-	ma_write_byte(0x20, 1, 64, cmd);
+	uint8_t cmd[2];
+	cmd[0] = 128-vol;
+	cmd[1] = cmd[0];
+  ma_write(MA120_ADDR, 2, 0x0003, cmd, 2);
 	return ret;
 }
 
-esp_err_t ma120x0_get_volume(int *vol)
+esp_err_t ma120_get_volume(int *vol)
 {
 	esp_err_t ret = ESP_OK;
     uint8_t rxbuf;
-    rxbuf = ma_read_byte(0x20, 1, 64, rxbuf);
+    rxbuf = ma_read_byte(MA120_ADDR, 2, 3);
     *vol = 128 - rxbuf; 
 	return ret;
 }
 
-esp_err_t ma120x0_set_mute(bool enable)
+esp_err_t ma120_set_mute(bool enable)
 {
 	esp_err_t ret = ESP_OK;
-  uint8_t nmute = (enable) ? 0 : 1 
+  uint8_t nmute;
+  nmute = (enable) ? 0 : 1; 
 	gpio_set_level(MA_NMUTE_IO, nmute);
 	return ret;
 }
 
-esp_err_t ma120x0_get_mute(bool *enabled)
+esp_err_t ma120_get_mute(bool *enabled)
 {
 	esp_err_t ret = ESP_OK;
    
@@ -115,7 +110,7 @@ esp_err_t ma120x0_get_mute(bool *enabled)
 	return ret;
 }
 
-esp_err_t ma120x0_init(audio_hal_codec_config_t *codec_cfg)
+esp_err_t ma120_init(audio_hal_codec_config_t *codec_cfg)
 {
    esp_err_t ret = ESP_OK;
    gpio_config_t io_conf;
@@ -136,7 +131,7 @@ esp_err_t ma120x0_init(audio_hal_codec_config_t *codec_cfg)
    io_conf.pull_down_en = 0;
    io_conf.pull_up_en = 0;
    printf("setup input %d %d \n", MA_NCLIP_IO, MA_NERR_IO);
-   gpio_config(&io_conf);
+   //gpio_config(&io_conf);
 
 
    gpio_set_level(MA_NMUTE_IO, 0);
@@ -149,8 +144,8 @@ esp_err_t ma120x0_init(audio_hal_codec_config_t *codec_cfg)
 
    gpio_set_level(MA_ENABLE_IO, 1);
 
-   uint8_t res = ma_write_byte(0x20,2,1544,0);
-   res = ma_read_byte(0x20,2,1544);
+   uint8_t res = ma_write_byte(MA120_ADDR,2,1544,0);
+   res = ma_read_byte(MA120_ADDR,2,1544);
    printf("Hardware version: 0x%02x\n",res);
    printf("Scan I2C bus: ");
    for (uint8_t addr = 0x20; addr <= 0x23 ; addr++ )
@@ -163,7 +158,7 @@ esp_err_t ma120x0_init(audio_hal_codec_config_t *codec_cfg)
    uint8_t rxbuf[32];
    uint8_t otp[1024];
    for (uint8_t i=0;i<16; i++)
-   { ma_read(0x20,2,0x8000+i*32,rxbuf,32);
+   { ma_read(MA120_ADDR,2,0x8000+i*32,rxbuf,32);
      //printf("%04x : ",0x8000+i*32 );
      for (uint8_t j=0; j<32 ; j++ )
      { otp[i*32+j] = rxbuf[j];
@@ -176,16 +171,16 @@ esp_err_t ma120x0_init(audio_hal_codec_config_t *codec_cfg)
      printf("%02x ",otp[i]);
    }
 
-   res = ma_write_byte(0x20,2,0x060c,0);
-   res = ma_read(0x20,2,0x060c,rxbuf,2);
+   res = ma_write_byte(MA120_ADDR,2,0x060c,0);
+   res = ma_read(MA120_ADDR,2,0x060c,rxbuf,2);
    printf("\nHardware version: 0x%02x\n",rxbuf[0]);
 
-   res = ma_read(0x20,2,0x0000, rxbuf,2);
+   res = ma_read(MA120_ADDR,2,0x0000, rxbuf,2);
    printf("\nAddress 0 : 0x%02x\n",rxbuf[0]);
-   ma_write_byte(0x20,2,0x0003,0x50);
-   ma_write_byte(0x20,2,0x0004,0x50);
-   ma_write_byte(0x20,2,0x0005,0x02);
-   //ma_write_byte(0x20,2,0x0246,0x00)  ;   //
+   ma_write_byte(MA120_ADDR,2,0x0003,0x50);
+   ma_write_byte(MA120_ADDR,2,0x0004,0x50);
+   ma_write_byte(MA120_ADDR,2,0x0005,0x02);
+   //ma_write_byte(MA120_ADDR,2,0x0246,0x00)  ;   //
    printf("\n");
 
    return ret;
@@ -213,7 +208,7 @@ void ma120_read_error(uint8_t i2c_addr)
   //0x011f error acc system [13..8]
   uint8_t errbuf[10] = {0};
 
-  uint8_t res = ma_read(i2c_addr,2,0x0118,errbuf,8);
+  ma_read(i2c_addr,2,0x0118,errbuf,8);
 
   // Error flag now : RED
   // Error flag acc : WHITE
@@ -240,14 +235,17 @@ void ma120_read_error(uint8_t i2c_addr)
   //printf("\n");
 }
 
-void i2c_master_init()
-{  int i2c_master_port = I2C_MASTER_NUM;
-   i2c_cfg = {
+static i2c_config_t i2c_cfg = {
 	   .mode = I2C_MODE_MASTER,
 	   .sda_pullup_en = GPIO_PULLUP_ENABLE,
 	   .scl_pullup_en = GPIO_PULLUP_ENABLE,
 	   .master.clk_speed = I2C_MASTER_FREQ_HZ,
    };
+ 
+void i2c_master_init()
+{  int i2c_master_port = I2C_MASTER_NUM;
+
+  
    get_i2c_pins(I2C_NUM_0, &i2c_cfg);
 
    esp_err_t res = i2c_param_config(i2c_master_port, &i2c_cfg);
