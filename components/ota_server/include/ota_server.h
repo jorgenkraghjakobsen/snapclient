@@ -3,6 +3,8 @@
 #define OTA_LISTEN_PORT 8032
 #define OTA_BUFF_SIZE 1024
 
+#include "freertos/event_groups.h"
+
 extern const int OTA_CONNECTED_BIT;
 
 void ota_server_task(void *param);

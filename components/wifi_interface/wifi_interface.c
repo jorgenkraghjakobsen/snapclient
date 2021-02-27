@@ -5,18 +5,21 @@
     Must be taken over/merge with wifi provision
 */
 
-#include "wifi_interface.h"
 
-#include "esp_event.h"
+//#include "esp_event.h"
 #include "esp_log.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
 
+#include "wifi_interface.h"
+
 static const char* TAG = "WIFI";
 
 char mac_address[18];
+
+EventGroupHandle_t s_wifi_event_group;
 
 static int s_retry_num = 0;
 

@@ -1,9 +1,9 @@
 #ifndef _WIFI_INTERFACE_H_
 #define _WIFI_INTERFACE_H_
 
-#include "esp_event.h"
+#include "freertos/event_groups.h"
 
-EventGroupHandle_t s_wifi_event_group;
+//esp_event_loop_handle_t s_wifi_event_group;
 
 /* Hardcoded WiFi configuration that you can set via
    'make menuconfig'.

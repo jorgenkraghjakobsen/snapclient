@@ -29,6 +29,10 @@
 #include "mdns.h"
 #include "net_functions.h"
 
+// Web socket server 
+#include "websocket_if.h"
+//#include "websocket_server.h"
+
 // Opus decoder is implemented as a subcomponet from master git repo
 #include <sys/time.h>
 
@@ -38,12 +42,16 @@
 #include "ota_server.h"
 #include "snapcast.h"
 
+//#include "ma120.h"
+void timeravg(struct timeval *tavg,struct timeval *tdif) ;
+
 xTaskHandle t_http_get_task;
+xQueueHandle prot_queue;
 xQueueHandle flow_queue;
 xQueueHandle i2s_queue;
 uint32_t buffer_ms = 400;
 uint8_t muteCH[4] = {0};
-struct timeval tdif;
+struct timeval tdif,tavg;
 audio_board_handle_t board_handle = NULL;
 
 int timeval_subtract(struct timeval *result, struct timeval *x,
@@ -65,6 +73,7 @@ static char buff[SNAPCAST_BUFF_LEN];
 
 extern char mac_address[18];
 extern EventGroupHandle_t s_wifi_event_group;
+
 enum codec_type { PCM, FLAC, OGG, OPUS };
 
 static void http_get_task(void *pvParameters) {
@@ -99,7 +108,8 @@ static void http_get_task(void *pvParameters) {
   uint16_t channels;
   uint32_t cnt = 0;
   int chunk_res;
-  dsp_i2s_task_init(48000, false);
+  ESP_LOGI("I2S", "Call dsp setup" );
+  dsp_i2s_task_init(44100, false);
 
   while (1) {
     /* Wait for the callback to set the CONNECTED_BIT in the
@@ -456,9 +466,25 @@ static void http_get_task(void *pvParameters) {
           trx.tv_usec = base_message.received.usec;
 
           timersub(&trx, &ttx, &tdif);
-          // ESP_LOGI(TAG, "Tclientdif :% 11ld.%03ld ", tdif.tv_sec ,
-          // tdif.tv_usec/1000);
-
+          timeravg(&tavg,&tdif);
+          ESP_LOGI(TAG, "Tclientdif :% 11ld.%03ld ", tdif.tv_sec , tdif.tv_usec/1000);
+          char retbuf[10];
+          retbuf[0] = 5; 
+          retbuf[1] = 5;
+          uint32_t usec = tdif.tv_usec;
+          uint32_t uavg = tavg.tv_usec;
+          ESP_LOGI(TAG, "Tclientdif : return value %d ",usec); 
+          
+          retbuf[2] = (usec & 0xff000000) >> 24 ;
+          retbuf[3] = (usec & 0x00ff0000) >> 16 ; 
+          retbuf[4] = (usec & 0x0000ff00) >> 8 ; 
+          retbuf[5] = (usec & 0x000000ff) ; 
+          retbuf[6] = (uavg & 0xff000000) >> 24 ;
+          retbuf[7] = (uavg & 0x00ff0000) >> 16 ; 
+          retbuf[8] = (uavg & 0x0000ff00) >> 8 ; 
+          retbuf[9] = (uavg & 0x000000ff) ; 
+          ws_server_send_bin_client(0,(char*)retbuf, 10); 
+                   
           // ESP_LOGI(TAG, "BaseTX  :% 11d.%03d ", base_message.sent.sec ,
           // base_message.sent.usec/1000); ESP_LOGI(TAG, "BaseRX  :% 11d.%03d ",
           // base_message.received.sec , base_message.received.usec/1000);
@@ -472,7 +498,7 @@ static void http_get_task(void *pvParameters) {
                       base_message.received.usec / 1000 -
                       base_message.sent.usec / 1000;
           time_diff = (time_diff > 1000) ? time_diff - 1000 : time_diff;
-          // ESP_LOGI(TAG, "TM loopback latency: %03.1f ms", time_diff);
+          ESP_LOGI(TAG, "TM loopback latency: %03.1f ms", time_diff);
           break;
       }
       // If it's been a second or longer since our last time message was
@@ -520,7 +546,26 @@ static void http_get_task(void *pvParameters) {
     close(sockfd);
   }
 }
-
+static uint32_t avg[32];  
+static int avgptr = 0; 
+static int avgsync = 0; 
+void timeravg(struct timeval *tavg,struct timeval *tdif) 
+{  ESP_LOGI("TAVG","Time input : % 11lld.%06d",(int64_t) (tdif)->tv_sec,(int32_t) (tdif)->tv_usec );
+   if (avgptr < 31 ) { 
+     avgptr = avgptr + 1; 
+   } else 
+   { avgsync = 1;
+     avgptr  = 0; 
+   }     
+   avg[avgptr] = (uint32_t) (tdif)->tv_usec;
+   uint32_t avgsum = 0; 
+   for (int i = 0; i < 32 ; i++) { 
+     avgsum = avgsum + avg[i];  
+   } 
+   uint32_t avg_32 = ( avgsync == 0 ) ? avgsum/avgptr : avgsum/32; 
+   ESP_LOGI("TAVG","Time avg :               %06d  %d ",avg_32, avgsync); 
+  
+}
 void app_main(void) {
   esp_err_t ret = nvs_flash_init();
   if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
@@ -532,15 +577,24 @@ void app_main(void) {
 
   ESP_LOGI(TAG, "Start codec chip");
   board_handle = audio_board_init();
-  audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_BOTH,
-                       AUDIO_HAL_CTRL_START);
-  i2s_mclk_gpio_select(0, 0);
+  ESP_LOGI(TAG, "Audio board_init done");
 
-  dsp_setup_flow(500, 48000);
+  audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_BOTH,
+                        AUDIO_HAL_CTRL_START);
+  i2s_mclk_gpio_select(0, 0);
+  //setup_ma120(); 
+
+  dsp_setup_flow(500, 44100);
 
   // Enable and setup WIFI in station mode  and connect to Access point setup in
   // menu config
   wifi_init_sta();
+ 
+  // Enable websocket server  
+  ESP_LOGI(TAG, "Connected to AP");
+  ESP_LOGI(TAG, "Setup ws server");
+  websocket_if_start();
+ 
   net_mdns_register("snapclient");
 #ifdef CONFIG_SNAPCLIENT_SNTP_ENABLE
   set_time_from_sntp();
@@ -548,16 +602,14 @@ void app_main(void) {
   flow_queue = xQueueCreate(10, sizeof(uint32_t));
   xTaskCreate(&ota_server_task, "ota_server_task", 4096, NULL, 15, NULL);
 
+  
   xTaskCreatePinnedToCore(&http_get_task, "http_get_task", 3 * 4096, NULL, 5,
                           &t_http_get_task, 1);
   while (1) {
     // audio_event_iface_msg_t msg;
     vTaskDelay(1000 / portTICK_PERIOD_MS);
+    
     // ma120_read_error(0x20);
-
-    // int res = ma_read(0x20,2,0x011a, rxbuf,3);
-    // ESP_LOGI(TAG,"Error : 0x%02x 0x%02x 0x%02x\n",rxbuf[0], rxbuf[1],
-    // rxbuf[2] );
 
     esp_err_t ret = 0;  // audio_event_iface_listen(evt, &msg, portMAX_DELAY);
     if (ret != ESP_OK) {

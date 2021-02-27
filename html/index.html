@@ -1,0 +1,27 @@
+<!!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>ESP32 Snapcast client debug mode</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="ma_if_ws.js" type="text/javascript"></script>
+    <script src="ma_tempmonitor.js" type="text/javascript"></script>
+    <script src="graph.js" type="text/javascript"></script>
+   </head>
+   <body>
+     <input id="dh_tempMonitor" value="temp" type="button" onClick="initTempMonitor()">
+     <input id="dh_mutepin" value="mute" type="button" onClick="pinstate(27)">
+     <input id="dh_enablepin" value="enable" type="button" onClick="pinstate(26)">
+     <select id="ws_host_select" name="ws_host" onchange="loadWebSocket()">
+       <option value="192.168.1.173">DUT station(rpi77)</option>
+       <option value="rpi109">HTOL system(rpi109)</option>
+     </select>
+     <br>
+     <div class="graphs-container">
+       <div class="graph-container" id="delayGraph">
+         <div>Delay ms</div>
+         <canvas id="delayCanvas"></canvas>
+       </div>
+     </div>
+  </body>
+</html>

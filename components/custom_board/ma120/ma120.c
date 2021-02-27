@@ -12,13 +12,11 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include "MerusAudio.h"
+#include "ma120.h"
 #include "board.h"
 #include "driver/i2c.h"
 #include "esp_log.h"
 
-//#include "ma120x0.h"
-//#include "ma120_rev1_all.h"
 
 static const char *TAG = "MA120";
 
@@ -54,7 +52,7 @@ audio_hal_func_t AUDIO_CODEC_MA120_DEFAULT_HANDLE = {
     .audio_codec_initialize = ma120_init,
     .audio_codec_deinitialize = ma120_deinit,
     .audio_codec_ctrl = ma120_ctrl,
-    .audio_codec_config_iface = NULL,
+    .audio_codec_config_iface = ma120_config_iface,
     .audio_codec_set_mute = ma120_set_mute,
     .audio_codec_set_volume = ma120_set_volume,
     .audio_codec_get_volume = ma120_get_volume,
@@ -68,7 +66,13 @@ esp_err_t ma120_deinit(void) {
 }
 
 esp_err_t ma120_ctrl(audio_hal_codec_mode_t mode, audio_hal_ctrl_t ctrl_state) {
-  // TODO
+   ESP_LOGI("MA120 Driver", "ctrl w. mode and ctrl_state"); 
+  return ESP_OK;
+}
+
+esp_err_t ma120_config_iface(audio_hal_codec_mode_t mode,
+                               audio_hal_codec_i2s_iface_t *iface) {
+  ESP_LOGI("MA120 Driver", "config_iface w. mode and interface");
   return ESP_OK;
 }
 
@@ -106,6 +110,11 @@ esp_err_t ma120_get_mute(bool *enabled) {
 
 esp_err_t ma120_init(audio_hal_codec_config_t *codec_cfg) {
   esp_err_t ret = ESP_OK;
+  setup_ma120();
+  return ret; 
+}  
+
+void setup_ma120(void){
   gpio_config_t io_conf;
 
   io_conf.intr_type = GPIO_PIN_INTR_DISABLE;
@@ -122,30 +131,29 @@ esp_err_t ma120_init(audio_hal_codec_config_t *codec_cfg) {
   io_conf.pin_bit_mask = (1ULL << MA_NCLIP_IO | 1ULL << MA_NERR_IO);
   io_conf.pull_down_en = 0;
   io_conf.pull_up_en = 0;
-  printf("setup input %d %d \n", MA_NCLIP_IO, MA_NERR_IO);
-  // gpio_config(&io_conf);
+  printf("Setup input NCLIP:%d  NERR:%d \n", MA_NCLIP_IO, MA_NERR_IO);
+  gpio_config(&io_conf);
 
   gpio_set_level(MA_NMUTE_IO, 0);
   gpio_set_level(MA_ENABLE_IO, 0);
-  // required?
-  // gpio_set_drive_capability(I2C_MASTER_SCL_IO,2);
-  // gpio_set_drive_capability(I2C_MASTER_SDA_IO,2);
-
+  
+  
   i2c_master_init();
 
   gpio_set_level(MA_ENABLE_IO, 1);
 
-  uint8_t res = ma_write_byte(MA120_ADDR, 2, 1544, 0);
-  res = ma_read_byte(MA120_ADDR, 2, 1544);
+  uint8_t res = ma_write_byte(MA120_ADDR, 2, 0x060c, 0);
+  res = ma_read_byte(MA120_ADDR, 2, 0x060c);
   printf("Hardware version: 0x%02x\n", res);
+  
   printf("Scan I2C bus: ");
   for (uint8_t addr = 0x20; addr <= 0x23; addr++) {
     res = ma_read_byte(addr, 2, 0);
-
     printf(" 0x%02x => GEN2 ,", addr);
     // printf("Scan i2c address 0x%02x read address 0 : 0x%02x \n", addr ,res);
   }
   printf("\n");
+  
   uint8_t rxbuf[32];
   uint8_t otp[1024];
   for (uint8_t i = 0; i < 16; i++) {
@@ -162,19 +170,13 @@ esp_err_t ma120_init(audio_hal_codec_config_t *codec_cfg) {
     printf("%02x ", otp[i]);
   }
 
-  res = ma_write_byte(MA120_ADDR, 2, 0x060c, 0);
-  res = ma_read(MA120_ADDR, 2, 0x060c, rxbuf, 2);
-  printf("\nHardware version: 0x%02x\n", rxbuf[0]);
-
   res = ma_read(MA120_ADDR, 2, 0x0000, rxbuf, 2);
   printf("\nAddress 0 : 0x%02x\n", rxbuf[0]);
   ma_write_byte(MA120_ADDR, 2, 0x0003, 0x50);
   ma_write_byte(MA120_ADDR, 2, 0x0004, 0x50);
   ma_write_byte(MA120_ADDR, 2, 0x0005, 0x02);
   // ma_write_byte(MA120_ADDR,2,0x0246,0x00)  ;   //
-  printf("\n");
-
-  return ret;
+  ESP_LOGI(TAG, "ma120_setup done [ok]");
 }
 
 #define CRED "\x1b[31m"
@@ -189,7 +191,7 @@ const char *syserr1_str[] = {" X ",    " X ",   "DSP3 ", " DSP2",
                              " DSP1 ", "DSP0 ", "ERR",   "PVT_low"};
 const char *syserr0_str[] = {"OTW",   "OTE",   "PV_uv", "PV_low",
                              "OV_ov", " CLK ", "AUD",   " TW    "};
-// static uint8_t terr = 0;
+
 void ma120_read_error(uint8_t i2c_addr) {  // 0x0118 error now ch0 [clip_stuck
                                            // dc  vcf_err  ocp_severe  ocp]
   // 0x0119 error now ch1 [clip_stuck  dc  vcf_err  ocp_severe  ocp]
@@ -232,7 +234,7 @@ void ma120_read_error(uint8_t i2c_addr) {  // 0x0118 error now ch0 [clip_stuck
   // printf("\n");
 }
 
-static i2c_config_t i2c_cfg = {
+static i2c_config_t i2c_cfg = { 
     .mode = I2C_MODE_MASTER,
     .sda_pullup_en = GPIO_PULLUP_ENABLE,
     .scl_pullup_en = GPIO_PULLUP_ENABLE,

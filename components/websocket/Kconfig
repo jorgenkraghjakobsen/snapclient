@@ -1,0 +1,61 @@
+
+menu "WebSocket Server"
+
+config WEBSOCKET_SERVER_MAX_CLIENTS
+  int "Max clients"
+  range 1 1000
+  default 20
+  help
+    Maximum number of clients that the WebSocket
+    server can handle at a time.
+
+config WEBSOCKET_SERVER_QUEUE_SIZE
+  int "Queue read size"
+  range 1 100
+  default 10
+  help
+    Size of the queue to deal with incoming
+    WebSocket messages. The queue holds the
+    connection, not the actual message.
+
+config WEBSOCKET_SERVER_QUEUE_TIMEOUT
+  int "Queue timeout"
+  range 0 10000
+  default 30
+  help
+    Timeout for adding new connections to the
+    read queue.
+
+config WEBSOCKET_SERVER_TASK_STACK_DEPTH
+  int "Stack depth"
+  range 3000 20000
+  default 6000
+  help
+    Stack depth for the WebSocket server. The task
+    handles reads.
+
+config WEBSOCKET_SERVER_TASK_PRIORITY
+  int "Priority"
+  range 1 20
+  default 5
+  help
+    Priority for the WebSocket server. The task
+    handles reads.
+
+config WEBSOCKET_SERVER_PINNED
+  bool "Server pinned to core"
+  default false
+  help
+    Pin the WebSocket server task to a specific core.
+    The task handles reads.
+
+config WEBSOCKET_SERVER_PINNED_CORE
+  int "Pinned core"
+  depends on WEBSOCKET_SERVER_PINNED
+  range 0 1
+  default 0
+  help
+    Core that the WebSocket server is pinned to.
+    The task handles reads.
+
+endmenu

@@ -55,14 +55,18 @@ audio_board_handle_t audio_board_init(void) {
       (audio_board_handle_t)audio_calloc(1, sizeof(struct audio_board_handle));
   AUDIO_MEM_CHECK(TAG, board_handle, return NULL);
   board_handle->audio_hal = audio_board_codec_init();
-
+  ESP_LOGI(TAG,"board-handle done") ;
   return board_handle;
 }
 
 audio_hal_handle_t audio_board_codec_init(void) {
+  ESP_LOGI("HAL", "INIT" );
   audio_hal_codec_config_t audio_codec_cfg = AUDIO_CODEC_DEFAULT_CONFIG();
+  
   audio_hal_handle_t codec_hal =
       audio_hal_init(&audio_codec_cfg, &AUDIO_CODEC_DEFAULT_HANDLE);
+  ESP_LOGI("HAL", "codec_hal done" );
+ 
   AUDIO_NULL_CHECK(TAG, codec_hal, return NULL);
   return codec_hal;
 }
