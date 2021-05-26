@@ -60,12 +60,12 @@ void setup_dsp_i2s(uint32_t sample_rate, bool slave_i2s) {
   i2s_pin_config_t pin_config0;
   get_i2s_pins(I2S_NUM_0, &pin_config0);
 
-  i2s_driver_install(0, &i2s_config0, 7, &i2s_queue);
+  i2s_driver_install(0, &i2s_config0, 1, &i2s_queue);
   i2s_zero_dma_buffer(0);
   i2s_set_pin(0, &pin_config0);
-  //gpio_set_drive_capability(CONFIG_MASTER_I2S_BCK_PIN, 0);
-  //gpio_set_drive_capability(CONFIG_MASTER_I2S_LRCK_PIN, 0);
-  //gpio_set_drive_capability(CONFIG_MASTER_I2S_DATAOUT_PIN, 0);
+  // gpio_set_drive_capability(CONFIG_MASTER_I2S_BCK_PIN, 0);
+  // gpio_set_drive_capability(CONFIG_MASTER_I2S_LRCK_PIN, 0);
+  // gpio_set_drive_capability(CONFIG_MASTER_I2S_DATAOUT_PIN, 0);
   ESP_LOGI("I2S", "I2S interface master setup");
   if (slave_i2s) {
     i2s_config_t i2s_config1 = {
@@ -203,7 +203,7 @@ static void dsp_i2s_task_handler(void *arg) {
     vRingbufferReturnItem(s_ringbuf_i2s, (void *)timestampSize);
 
     // what's this for?
-    //while (tdif.tv_sec == 0) {
+    // while (tdif.tv_sec == 0) {
     //  vTaskDelay(1);
     //}
     gettimeofday(&now, NULL);
@@ -503,13 +503,12 @@ static void dsp_i2s_task_handler(void *arg) {
 
 void dsp_i2s_task_init(uint32_t sample_rate, bool slave) {
   setup_dsp_i2s(sample_rate, slave);
-  ESP_LOGI("I2S","Setup i2s dma and interface");
+  ESP_LOGI("I2S", "Setup i2s dma and interface");
 #ifdef CONFIG_USE_PSRAM
   printf("Setup ringbuffer using PSRAM \n");
   StaticRingbuffer_t *buffer_struct = (StaticRingbuffer_t *)heap_caps_malloc(
       sizeof(StaticRingbuffer_t), MALLOC_CAP_SPIRAM);
   printf("Buffer_struct ok\n");
-
 
   uint8_t *buffer_storage = (uint8_t *)heap_caps_malloc(
       sizeof(uint8_t) * BUFFER_SIZE, MALLOC_CAP_SPIRAM);

@@ -14,5 +14,5 @@ idf_component_register(SRCS "${srcs}" "${silk}" "${celt}" "${fixed}" "${float}"
 									"opus/celt"
 									)
 
-
+set_source_files_properties(opus/silk/quant_LTP_gains.c PROPERTIES COMPILE_FLAGS -Wno-maybe-uninitialized)
 target_compile_definitions(${COMPONENT_TARGET} PRIVATE "-DHAVE_CONFIG_H")

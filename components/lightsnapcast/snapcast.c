@@ -13,6 +13,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "esp_heap_caps.h"
+#include "esp_log.h"
+
+/* Logging tag */
+static const char *TAG = "libSNAPCAST";
+
 const int BASE_MESSAGE_SIZE = 26;
 const int TIME_MESSAGE_SIZE = 8;
 
@@ -175,8 +181,7 @@ int server_settings_message_deserialize(server_settings_message_t *msg,
   if (!json) {
     const char *error_ptr = cJSON_GetErrorPtr();
     if (error_ptr) {
-      // TODO change to a macro that can be disabled
-      fprintf(stderr, "Error before: %s\n", error_ptr);
+      ESP_LOGE(TAG, "Error before: %s", error_ptr);
       goto end;
     }
   }
@@ -266,8 +271,13 @@ int wire_chunk_message_deserialize(wire_chunk_message_t *msg, const char *data,
     return result;
   }
 
-  // TODO maybe should check to see if need to free memory?
+// TODO maybe should check to see if need to free memory?
+#if CONFIG_USE_PSRAM
+  msg->payload =
+      (char *)heap_caps_malloc(msg->size * sizeof(char), MALLOC_CAP_SPIRAM);
+#else
   msg->payload = malloc(msg->size * sizeof(char));
+#endif
   // Failed to allocate the memory
   if (!msg->payload) {
     return 2;
