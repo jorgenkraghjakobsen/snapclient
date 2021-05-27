@@ -1,6 +1,5 @@
 // https://github.com/yanbe/esp-idf-ota-template/blob/master/components/ota_server/ota_server.c
 
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,6 +18,7 @@
 #include "esp_system.h"
 #include "esp_wifi.h"
 #include "lwip/sockets.h"
+#include "player.h"
 
 #include "ota_server.h"
 
@@ -170,8 +170,9 @@ void ota_server_start_my(void) {
   // We don't want any other thread running during this update.
   // SuspendAllThreads();
   // KillAllThreads();
-  dsp_i2s_task_deinit();
+  // dsp_i2s_task_deinit();
   vTaskDelete(t_http_get_task);
+  deinit_player();  // ensure this is called after http_task was killed
 
   int recv_len;
   char ota_buff[OTA_BUFF_SIZE] = {0};

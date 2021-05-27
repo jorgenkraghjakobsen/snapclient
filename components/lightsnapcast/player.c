@@ -16,6 +16,7 @@
 #include "driver/timer.h"
 
 #include "MedianFilter.h"
+#include "board_pins_config.h"
 #include "player.h"
 #include "snapcast.h"
 
@@ -62,7 +63,7 @@ static sMedianNode_t shortMedianBuffer[SHORT_BUFFER_LEN];
 
 static int8_t currentDir = 0;  //!< current apll direction, see apll_adjust()
 
-static QueueHandle_t pcmChunkQueueHandle;
+static QueueHandle_t pcmChunkQueueHandle = NULL;
 #define PCM_CHNK_QUEUE_LENGTH \
   500  // TODO: one chunk is hardcoded to 20ms, change it to be dynamically
        // adjustable.
@@ -74,7 +75,7 @@ static int64_t i2sDmaLAtency = 0;
 
 static TaskHandle_t syncTaskHandle = NULL;
 
-static xQueueHandle i2s_event_queue;
+static xQueueHandle i2s_event_queue = NULL;
 
 static const size_t chunkInBytes =
     (WIRE_CHUNK_DURATION_MS * SAMPLE_RATE * CHANNELS * (BITS_PER_SAMPLE / 8)) /
@@ -83,14 +84,17 @@ static const size_t chunkInBytes =
 static uint32_t i2sDmaBufCnt;
 
 static void tg0_timer_init(void);
+static void tg0_timer_deinit(void);
 static void snapcast_sync_task(void *pvParameters);
 
+/*
 #define CONFIG_MASTER_I2S_BCK_PIN 5
 #define CONFIG_MASTER_I2S_LRCK_PIN 25
 #define CONFIG_MASTER_I2S_DATAOUT_PIN 26
 #define CONFIG_SLAVE_I2S_BCK_PIN 26
 #define CONFIG_SLAVE_I2S_LRCK_PIN 12
 #define CONFIG_SLAVE_I2S_DATAOUT_PIN 5
+*/
 
 static esp_err_t player_setup_i2s(uint32_t sample_rate, i2s_port_t i2sNum) {
   int chunkInFrames = chunkInBytes / (CHANNELS * (BITS_PER_SAMPLE / 8));
@@ -143,12 +147,17 @@ static esp_err_t player_setup_i2s(uint32_t sample_rate, i2s_port_t i2sNum) {
       .tx_desc_auto_clear = true  // Auto clear tx descriptor on underflow
   };
 
-  i2s_pin_config_t pin_config0 = {
-      .bck_io_num = CONFIG_MASTER_I2S_BCK_PIN,
-      .ws_io_num = CONFIG_MASTER_I2S_LRCK_PIN,
-      .data_out_num = CONFIG_MASTER_I2S_DATAOUT_PIN,
-      .data_in_num = -1  // Not used
-  };
+  i2s_pin_config_t pin_config0;
+  get_i2s_pins(i2sNum, &pin_config0);
+
+  /*
+    i2s_pin_config_t pin_config0 = {
+        .bck_io_num = CONFIG_MASTER_I2S_BCK_PIN,
+        .ws_io_num = CONFIG_MASTER_I2S_LRCK_PIN,
+        .data_out_num = CONFIG_MASTER_I2S_DATAOUT_PIN,
+        .data_in_num = -1  // Not used
+    };
+  */
 
   i2s_driver_install(i2sNum, &i2s_config0, 1, &i2s_event_queue);
   i2s_set_pin(i2sNum, &pin_config0);
@@ -156,6 +165,56 @@ static esp_err_t player_setup_i2s(uint32_t sample_rate, i2s_port_t i2sNum) {
   return 0;
 }
 
+// ensure this is called after http_task was killed!
+int deinit_player(void) {
+  int ret = 0;
+
+  wire_chunk_message_t *chnk = NULL;
+
+  // stop the task
+  if (syncTaskHandle == NULL) {
+    ESP_LOGW(TAG, "no sync task created?");
+  } else {
+    vTaskDelete(syncTaskHandle);
+  }
+
+  if (pcmChunkQueueHandle == NULL) {
+    ESP_LOGW(TAG, "no pcm chunk queue created?");
+  } else {
+    // free all allocated memory
+    while (uxQueueMessagesWaiting(pcmChunkQueueHandle)) {
+      ret = xQueueReceive(pcmChunkQueueHandle, &chnk, pdMS_TO_TICKS(2000));
+      if (ret != pdFAIL) {
+        if (chnk != NULL) {
+          free(chnk->payload);
+          free(chnk);
+          chnk = NULL;
+        }
+      }
+    }
+
+    // delete the queue
+    vQueueDelete(pcmChunkQueueHandle);
+    pcmChunkQueueHandle = NULL;
+  }
+
+  if (latencyBufSemaphoreHandle == NULL) {
+    ESP_LOGW(TAG, "no latency buffer semaphore created?");
+  } else {
+    vSemaphoreDelete(latencyBufSemaphoreHandle);
+    latencyBufSemaphoreHandle = NULL;
+  }
+
+  tg0_timer_deinit();
+
+  ESP_LOGI(TAG, "deinit player done");
+
+  return ret;
+}
+
+/**
+ *  call before http task creation!
+ */
 QueueHandle_t init_player(void) {
   int ret;
 
@@ -167,12 +226,16 @@ QueueHandle_t init_player(void) {
   }
 
   // create semaphore for time diff buffer to server
-  latencyBufSemaphoreHandle = xSemaphoreCreateMutex();
+  if (latencyBufSemaphoreHandle == NULL) {
+    latencyBufSemaphoreHandle = xSemaphoreCreateMutex();
+  }
 
   // create snapcast receive buffer
-  pcmChunkQueueHandle =
-      xQueueCreateStatic(PCM_CHNK_QUEUE_LENGTH, sizeof(wire_chunk_message_t *),
-                         pcmChunkQueueStorageArea, &pcmChunkQueue);
+  if (pcmChunkQueueHandle == NULL) {
+    pcmChunkQueueHandle = xQueueCreateStatic(
+        PCM_CHNK_QUEUE_LENGTH, sizeof(wire_chunk_message_t *),
+        pcmChunkQueueStorageArea, &pcmChunkQueue);
+  }
 
   // init diff buff median filter
   latencyMedianFilterLong.numNodes = MEDIAN_FILTER_LONG_BUF_LEN;
@@ -468,8 +531,6 @@ void adjust_apll(int8_t direction) {
  *
  */
 static void snapcast_sync_task(void *pvParameters) {
-  //	snapcast_sync_task_cfg_t *taskCfg = (snapcast_sync_task_cfg_t
-  //*)pvParameters;
   wire_chunk_message_t *chnk = NULL;
   int64_t serverNow = 0;
   int64_t age;
@@ -484,11 +545,9 @@ static void snapcast_sync_task(void *pvParameters) {
   int32_t alarmValSub = 0;
   int initialSync = 0;
   int64_t avg = 0;
-  int64_t latencyInitialSync = 0;
   int dir = 0;
   i2s_event_t i2sEvent;
   uint32_t i2sDmaBufferCnt = 0;
-  int writtenBytes, bytesAvailable;
   int64_t buffer_ms_local;
 
   ESP_LOGI(TAG, "started sync task");

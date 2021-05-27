@@ -89,6 +89,8 @@ typedef enum codec_type_e { NONE, PCM, FLAC, OGG, OPUS } codec_type_t;
 static QueueHandle_t playerChunkQueueHandle;
 SemaphoreHandle_t timeSyncSemaphoreHandle = NULL;
 
+uint8_t dspFlow = dspfBiamp;  // dspfBiamp; // dspfStereo; // dspfBassBoost;
+
 /**
  *
  */
@@ -551,6 +553,10 @@ static void http_get_task(void *pvParameters) {
                           frame_size * 2 * sizeof(uint16_t);
                       pcm_chunk_message->timestamp = timestamp;
                       pcm_chunk_message->payload = (char *)audio;
+
+                      dsp_processor(pcm_chunk_message->payload,
+                                    pcm_chunk_message->size, dspFlow);
+
                       if (xQueueSendToBack(playerChunkQueueHandle,
                                            &pcm_chunk_message,
                                            pdMS_TO_TICKS(1000)) != pdTRUE) {
@@ -592,7 +598,11 @@ static void http_get_task(void *pvParameters) {
                     pcm_chunk_message->payload = (char *)audio;
                     // TODO: if wire_chunk_message_free is done
                     // differently this copy can be avoided
-                    memcpy(pcm_chunk_message->payload, start, size);
+                    memcpy(pcm_chunk_message->payload, start,
+                           pcm_chunk_message->size);
+
+                    dsp_processor(pcm_chunk_message->payload,
+                                  pcm_chunk_message->size, dspFlow);
 
                     if (xQueueSendToBack(playerChunkQueueHandle,
                                          &pcm_chunk_message,
@@ -849,6 +859,8 @@ void app_main(void) {
                        AUDIO_HAL_CTRL_START);
   i2s_mclk_gpio_select(0, 0);
   // setup_ma120();
+
+  dsp_setup_flow(500, SAMPLE_RATE);
 
   ESP_LOGI(TAG, "init player");
   playerChunkQueueHandle = init_player();

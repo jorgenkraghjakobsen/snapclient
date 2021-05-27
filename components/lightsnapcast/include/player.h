@@ -22,6 +22,7 @@
 #define SHORT_BUFFER_LEN 99
 
 QueueHandle_t init_player(void);
+int deinit_player(void);
 
 int8_t player_latency_insert(int64_t newValue);
 int8_t player_notify_buffer_ms(uint32_t ms);
