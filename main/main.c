@@ -89,7 +89,7 @@ typedef enum codec_type_e { NONE, PCM, FLAC, OGG, OPUS } codec_type_t;
 static QueueHandle_t playerChunkQueueHandle;
 SemaphoreHandle_t timeSyncSemaphoreHandle = NULL;
 
-uint8_t dspFlow = dspfBiamp;  // dspfBiamp; // dspfStereo; // dspfBassBoost;
+uint8_t dspFlow = dspfStereo;  // dspfBiamp; // dspfStereo; // dspfBassBoost;
 
 /**
  *
@@ -143,7 +143,7 @@ static void http_get_task(void *pvParameters) {
 
   id_counter = 0;
 
-#ifdef CONFIG_SNAPCLIENT_USE_MDNS
+#if CONFIG_SNAPCLIENT_USE_MDNS
   ESP_LOGI(TAG, "Enable mdns");
   mdns_init();
 #endif
@@ -868,9 +868,9 @@ void app_main(void) {
     return;
   }
 
-  // Enable and setup WIFI in station mode  and connect to Access point setup in
-  // menu config
-  wifi_init_sta();
+  // Enable and setup WIFI in station mode and connect to Access point setup in
+  // menu config or set up provisioning mode settable in menuconfig
+  wifi_init();
 
   // Enable websocket server
   ESP_LOGI(TAG, "Connected to AP");
