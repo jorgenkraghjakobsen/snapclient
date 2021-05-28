@@ -1,14 +1,21 @@
 menu "Wifi Configuration"
+    config ENABLE_WIFI_PROVISIONING
+        bool "enable WiFi profisioning"
+        default n
+        help
+            Enable WiFi provisioning so espressif APP can be used to provison WiFi credentials
 
     config WIFI_SSID
         string "WiFi SSID"
         default "myssid"
+        depends on !ENABLE_WIFI_PROVISIONING
         help
             SSID (network name) for the example to connect to.
 
     config WIFI_PASSWORD
         string "WiFi Password"
         default "mypassword"
+        depends on !ENABLE_WIFI_PROVISIONING
         help
             WiFi password (WPA or WPA2) for the example to use.
 
@@ -17,4 +24,5 @@ menu "Wifi Configuration"
         default 5
         help
             Set the Maximum retry to avoid station reconnecting to the AP unlimited when the AP is really inexistent.
+            Set to 0 if unlimited reconnections are preferred.
 endmenu

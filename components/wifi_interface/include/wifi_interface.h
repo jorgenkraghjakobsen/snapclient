@@ -3,13 +3,17 @@
 
 #include "freertos/event_groups.h"
 
-//esp_event_loop_handle_t s_wifi_event_group;
+// use wifi provisioning
+#define ENABLE_WIFI_PROVISIONING CONFIG_ENABLE_WIFI_PROVISIONING
 
 /* Hardcoded WiFi configuration that you can set via
    'make menuconfig'.
 */
+#if !ENABLE_WIFI_PROVISIONING
 #define WIFI_SSID CONFIG_WIFI_SSID
 #define WIFI_PASSWORD CONFIG_WIFI_PASSWORD
+#endif
+
 #define WIFI_MAXIMUM_RETRY CONFIG_WIFI_MAXIMUM_RETRY
 
 /* The event group allows multiple bits for each event, but we only care about
@@ -19,9 +23,6 @@
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT BIT1
 
-void event_handler(void* arg, esp_event_base_t event_base, int32_t event_id,
-                   void* event_data);
-
-void wifi_init_sta(void);
+void wifi_init(void);
 
 #endif /* _WIFI_INTERFACE_H_ */

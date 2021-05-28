@@ -90,7 +90,7 @@ void codec_header_message_free(codec_header_message_t *msg);
 
 typedef struct wire_chunk_message {
   tv_t timestamp;
-  uint32_t size;
+  size_t size;
   char *payload;
 } wire_chunk_message_t;
 
