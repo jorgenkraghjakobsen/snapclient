@@ -473,7 +473,7 @@ static void http_get_task(void *pvParameters) {
           retbuf[1] = 5;
           uint32_t usec = tdif.tv_usec;
           uint32_t uavg = tavg.tv_usec;
-          ESP_LOGI(TAG, "Tclientdif : return value %d ",usec); 
+          ESP_LOGI(TAG, "Tclientdif : return value %d ",uavg); 
           
           retbuf[2] = (usec & 0xff000000) >> 24 ;
           retbuf[3] = (usec & 0x00ff0000) >> 16 ; 
@@ -563,7 +563,8 @@ void timeravg(struct timeval *tavg,struct timeval *tdif)
      avgsum = avgsum + avg[i];  
    } 
    uint32_t avg_32 = ( avgsync == 0 ) ? avgsum/avgptr : avgsum/32; 
-   ESP_LOGI("TAVG","Time avg :               %06d  %d ",avg_32, avgsync); 
+   tavg->tv_usec = avg_32;
+   //ESP_LOGI("TAVG","Time avg :               %06d  %d ",avg_32, avgsync); 
   
 }
 void app_main(void) {

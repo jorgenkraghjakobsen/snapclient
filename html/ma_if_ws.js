@@ -130,11 +130,15 @@ function loadWebSocket() {
 		const now = Date.now();
 		value =  buf[2]*256*256*256 + buf[3]*256*256 + buf[4]*256 + buf[5] ;
 		console.log(value);
+    avalue =  buf[6]*256*256*256 + buf[7]*256*256 + buf[8]*256 + buf[9] - 100000;
+		console.log(avalue);
       
 		delaySeries.addPoint(now,value);
-		delayGraph.setDataSeries([delaySeries]);
-		delayGraph.updateEndDate();
-	
+    delayASeries.addPoint(now,avalue);
+    //delayGraph.setDataSeries([delayASeries]);
+    delayGraph.setDataSeries([delaySeries]);
+    delayGraph.updateEndDate();
+  
 	  }
 
    
