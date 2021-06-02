@@ -410,7 +410,7 @@ static void http_get_task(void *pvParameters) {
 
               if ((chunk_res = write_ringbuf((const uint8_t *)start, size)) !=
                   size) {
-                ESP_LOGI(TAG, "Error writing data to ring buffer: %d",
+                ESP_LOGE(TAG, "Error writing data to ring buffer: %d",
                          chunk_res);
               }
               break;
@@ -579,9 +579,9 @@ void app_main(void) {
   board_handle = audio_board_init();
   ESP_LOGI(TAG, "Audio board_init done");
 
-  audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_BOTH,
-                        AUDIO_HAL_CTRL_START);
-  i2s_mclk_gpio_select(0, 0);
+  //audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_BOTH,
+  //                      AUDIO_HAL_CTRL_START);
+  //i2s_mclk_gpio_select(0, 0);
   //setup_ma120(); 
 
   dsp_setup_flow(500, 44100);

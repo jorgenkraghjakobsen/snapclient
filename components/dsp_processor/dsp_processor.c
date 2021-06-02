@@ -38,7 +38,7 @@ extern uint32_t buffer_ms;
 extern uint8_t muteCH[4];
 
 uint8_t dspFlow =
-    dspfBassBoost;  // dspfStereo; // dspfStereo; //dspfBassBoost; //dspfStereo;
+    dspfStereo; // dspfStereo; //dspfBassBoost; //dspfStereo;
 
 ptype_t bq[8];
 
@@ -68,6 +68,8 @@ void setup_dsp_i2s(uint32_t sample_rate, bool slave_i2s) {
   //gpio_set_drive_capability(CONFIG_MASTER_I2S_DATAOUT_PIN, 0);
   ESP_LOGI("I2S", "I2S interface master setup");
   if (slave_i2s) {
+    ESP_LOGI("I2S", "Config slave I2S channel");
+  
     i2s_config_t i2s_config1 = {
         .mode = I2S_MODE_SLAVE | I2S_MODE_TX,  // Only TX - Slave channel
         .sample_rate = sample_rate,
@@ -184,7 +186,7 @@ static void dsp_i2s_task_handler(void *arg) {
     }
 
     if (n_byte_read != 12) {
-      ESP_LOGI("I2S", "error read from ringbuf %d ", n_byte_read);
+      ESP_LOGE("I2S", "error read from ringbuf %d ", n_byte_read);
       // TODO find a decent stategy to fall back on our feet...
     }
 
@@ -254,8 +256,13 @@ static void dsp_i2s_task_handler(void *arg) {
     audio = (uint8_t *)xRingbufferReceiveUpTo(s_ringbuf_i2s, &chunk_size,
                                               (portTickType)20, ts_size);
     if (chunk_size != ts_size) {
-      ESP_LOGI("I2S", "Error readding audio from ring buf %d %d ", chunk_size,
-               ts_size);
+      uint32_t missing = ts_size - chunk_size; 
+      ESP_LOGI("I2S", "Error readding audio from ring buf : read %d of %d , missing %d", chunk_size,ts_size, missing);
+      vRingbufferReturnItem(s_ringbuf_i2s, (void *)audio);
+      uint8_t *ax = audio ; 
+      ax = (uint8_t *)xRingbufferReceiveUpTo(s_ringbuf_i2s, &chunk_size,
+                                              (portTickType)20, missing);
+      ESP_LOGI("I2S", "Read the next %d ", chunk_size );
     }
     // printf("Read data   : %d \n",chunk_size );
 
@@ -497,8 +504,11 @@ static void dsp_i2s_task_handler(void *arg) {
 // buffer size must hold 400ms-1000ms  // for 2ch16b48000 that is 76800 -
 // 192000 or 75-188 x 1024
 
-#define BUFFER_SIZE 192 * (3528 + 12)
-//(3840 + 12)
+#define BUFFER_SIZE 192 * (3840 + 12)
+ 
+//#define BUFFER_SIZE 192 * (3528 + 12)    // 44100/16/2
+//(3840 + 12)  PCM 48000/16/2 
+
 // 3852 3528
 
 void dsp_i2s_task_init(uint32_t sample_rate, bool slave) {
@@ -516,6 +526,8 @@ void dsp_i2s_task_init(uint32_t sample_rate, bool slave) {
   printf("Buffer_stoarge ok\n");
   s_ringbuf_i2s = xRingbufferCreateStatic(BUFFER_SIZE, RINGBUF_TYPE_BYTEBUF,
                                           buffer_storage, buffer_struct);
+  //s_ringbuf_i2s = xRingbufferCreateStatic(BUFFER_SIZE, RINGBUF_TYPE_BYTEBUF,
+  //                                        buffer_storage, buffer_struct);
   printf("Ringbuf ok\n");
 #else
   printf(
