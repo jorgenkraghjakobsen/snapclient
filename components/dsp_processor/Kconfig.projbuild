@@ -4,17 +4,42 @@ menu "ESP32 audio buffer and I2S pin config"
     config USE_PSRAM
         bool "Use PSRAM"
         default true
+        depends on ESP32_SPIRAM_SUPPORT
         help
             Need wrover class modules with large SPRAM to have required buffers for Snapcast network delay
 
+    config USE_DSP_PROCESSOR
+        bool "enable signal processing on audio data"
+        default false
+        help
+            enable audio filtering before queueing it to player component
+
     config BITS_PER_SAMPLE
         int "bits per sample output to i2s driver"
-        default 32
+        default 16
         help
-           Select number of bits per sample for codec configed and connected to esp32 i2s dma hw
+           Select number of bits per sample for codec configured and connected to esp32 i2s dma hw
+
+    config CHANNELS
+        int "number of channels per sample output to i2s driver"
+        default 2
+        help
+           Select number of channels per sample for codec configured and connected to esp32 i2s dma hw
+
+    config PCM_SAMPLE_RATE
+        int "sample rate of audio pcm data"
+        default 48000
+        help
+           sample rate of audio data, currently only 48kHz is heavily tested and used during development
+
+    config WIRE_CHUNK_DURATION_MS
+        int "wire chunk duration [ms]"
+        default 20
+        help
+           pcm data is encoded in chunks of x ms, this value has to match snapserver configuration
 
     config USE_BIQUAD_ASM
-        bool "Use uptimized asm verion of Biquad_f32"
+        bool "Use uptimized asm version of Biquad_f32"
         default true
         help
             Asm version 2 x speed on ESP32 - not working on ESP32-S2

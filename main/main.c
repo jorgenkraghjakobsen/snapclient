@@ -37,11 +37,15 @@
 #include <sys/time.h>
 
 #include "driver/i2s.h"
+#if CONFIG_USE_DSP_PROCESSOR
 #include "dsp_processor.h"
+#endif
 #include "opus.h"
 #include "ota_server.h"
 #include "player.h"
 #include "snapcast.h"
+
+//#include "ma120.h"
 
 const char *VERSION_STRING = "0.0.2";
 
@@ -51,16 +55,14 @@ const char *VERSION_STRING = "0.0.2";
 #define OTA_TASK_PRIORITY 6
 #define OTA_TASK_CORE_ID tskNO_AFFINITY
 
-//#include "ma120.h"
-
 xTaskHandle t_ota_task;
-
 xTaskHandle t_http_get_task;
+
 xQueueHandle prot_queue;
-xQueueHandle flow_queue;
-xQueueHandle i2s_queue;
+
 uint32_t buffer_ms = 400;
 uint8_t muteCH[4] = {0};
+
 struct timeval tdif, tavg;
 audio_board_handle_t board_handle = NULL;
 
@@ -69,13 +71,13 @@ int timeval_subtract(struct timeval *result, struct timeval *x,
 
 /* snapast parameters; configurable in menuconfig */
 #define SNAPCAST_SERVER_USE_MDNS CONFIG_SNAPSERVER_USE_MDNS
+#if !SNAPCAST_SERVER_USE_MDNS
 #define SNAPCAST_SERVER_HOST CONFIG_SNAPSERVER_HOST
 #define SNAPCAST_SERVER_PORT CONFIG_SNAPSERVER_PORT
+#endif
 #define SNAPCAST_BUFF_LEN CONFIG_SNAPCLIENT_BUFF_LEN
 #define SNAPCAST_CLIENT_NAME CONFIG_SNAPCLIENT_NAME
 
-unsigned int addr;
-uint32_t port = SNAPCAST_SERVER_PORT;
 /* Logging tag */
 static const char *TAG = "SNAPCAST";
 
@@ -89,7 +91,9 @@ typedef enum codec_type_e { NONE, PCM, FLAC, OGG, OPUS } codec_type_t;
 static QueueHandle_t playerChunkQueueHandle;
 SemaphoreHandle_t timeSyncSemaphoreHandle = NULL;
 
+#if CONFIG_USE_DSP_PROCESSOR
 uint8_t dspFlow = dspfStereo;  // dspfBiamp; // dspfStereo; // dspfBassBoost;
+#endif
 
 /**
  *
@@ -164,7 +168,7 @@ static void http_get_task(void *pvParameters) {
       opusDecoder = NULL;
     }
 
-#ifdef CONFIG_SNAPCLIENT_USE_MDNS
+#if SNAPCAST_SERVER_USE_MDNS
     // Find snapcast server
     // Connect to first snapcast server found
     r = NULL;
@@ -196,8 +200,8 @@ static void http_get_task(void *pvParameters) {
 #else
     // configure a failsafe snapserver according to CONFIG values
     servaddr.sin_family = AF_INET;
-    inet_pton(AF_INET, CONFIG_SNAPSERVER_HOST, &(servaddr.sin_addr.s_addr));
-    servaddr.sin_port = htons(CONFIG_SNAPSERVER_PORT);
+    inet_pton(AF_INET, SNAPCAST_SERVER_HOST, &(servaddr.sin_addr.s_addr));
+    servaddr.sin_port = htons(SNAPCAST_SERVER_PORT);
 #endif
     ESP_LOGI(TAG, "allocate socket");
     sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -506,9 +510,19 @@ static void http_get_task(void *pvParameters) {
               case OPUS: {
                 int frame_size = 0;
 
-                audio = (int16_t *)heap_caps_malloc(
-                    frameSize * CHANNELS * (BITS_PER_SAMPLE / 8),
-                    MALLOC_CAP_SPIRAM);  // 960*2: 20ms, 960*1: 10ms
+                if (audio == NULL) {
+#if CONFIG_USE_PSRAM
+                  audio = (int16_t *)heap_caps_malloc(
+                      frameSize * CHANNELS * (BITS_PER_SAMPLE / 8),
+                      MALLOC_CAP_8BIT |
+                          MALLOC_CAP_SPIRAM);  // 960*2: 20ms, 960*1: 10ms
+#else
+                  audio = (int16_t *)malloc(
+                      frameSize * CHANNELS *
+                      (BITS_PER_SAMPLE / 8));  // 960*2: 20ms, 960*1: 10ms
+#endif
+                }
+
                 if (audio == NULL) {
                   ESP_LOGE(TAG,
                            "Failed to allocate memory for opus audio decoder");
@@ -523,8 +537,22 @@ static void http_get_task(void *pvParameters) {
                     pcm_size = pcm_size * 2;
 
                     // 960*2: 20ms, 960*1: 10ms
+#if CONFIG_USE_PSRAM
+                    audio = (int16_t *)heap_caps_realloc(
+                        audio, pcm_size * CHANNELS * (BITS_PER_SAMPLE / 8),
+                        MALLOC_CAP_8BIT |
+                            MALLOC_CAP_SPIRAM);  // 2 channels + 2 Byte per
+                                                 // sample == int32_t
+#else
                     audio = (int16_t *)realloc(
-                        audio, pcm_size * CHANNELS * sizeof(int16_t));
+                        audio, pcm_size * CHANNELS * (BITS_PER_SAMPLE / 8));
+                    //                    audio = (int16_t *)heap_caps_realloc(
+                    //                    				   (int32_t
+                    //                    *)audio, frameSize * CHANNELS *
+                    //                    (BITS_PER_SAMPLE / 8),
+                    //                    MALLOC_CAP_32BIT);  // 960*2: 20ms,
+                    //                    960*1: 10ms
+#endif
 
                     ESP_LOGI(TAG,
                              "OPUS encoding buffer too small, resizing to %d "
@@ -538,37 +566,21 @@ static void http_get_task(void *pvParameters) {
                              pcm_size / channels);
 
                     free(audio);
+                    audio = NULL;
                   } else {
-                    wire_chunk_message_t *pcm_chunk_message;
+                    wire_chunk_message_t pcm_chunk_message;
 
-                    pcm_chunk_message =
-                        (wire_chunk_message_t *)heap_caps_malloc(
-                            sizeof(wire_chunk_message_t), MALLOC_CAP_SPIRAM);
-                    if (pcm_chunk_message == NULL) {
-                      ESP_LOGE(
-                          TAG,
-                          "Failed to allocate memory for pcm chunk message");
-                    } else {
-                      pcm_chunk_message->size =
-                          frame_size * 2 * sizeof(uint16_t);
-                      pcm_chunk_message->timestamp = timestamp;
-                      pcm_chunk_message->payload = (char *)audio;
+                    pcm_chunk_message.size =
+                        frame_size * CHANNELS * (BITS_PER_SAMPLE / 8);
+                    pcm_chunk_message.payload = audio;
+                    pcm_chunk_message.timestamp = timestamp;
 
-                      dsp_processor(pcm_chunk_message->payload,
-                                    pcm_chunk_message->size, dspFlow);
+#if CONFIG_USE_DSP_PROCESSOR
+                    dsp_processor(pcm_chunk_message.payload,
+                                  pcm_chunk_message.size, dspFlow);
+#endif
 
-                      if (xQueueSendToBack(playerChunkQueueHandle,
-                                           &pcm_chunk_message,
-                                           pdMS_TO_TICKS(1000)) != pdTRUE) {
-                        ESP_LOGW(
-                            TAG,
-                            "send: pcmChunkQueue full, messages waiting %d",
-                            uxQueueMessagesWaiting(playerChunkQueueHandle));
-
-                        free(pcm_chunk_message->payload);
-                        free(pcm_chunk_message);
-                      }
-                    }
+                    insert_pcm_chunk(&pcm_chunk_message);
                   }
                 }
 
@@ -576,10 +588,23 @@ static void http_get_task(void *pvParameters) {
               }
 
               case PCM: {
-                wire_chunk_message_t *pcm_chunk_message;
+                wire_chunk_message_t pcm_chunk_message;
+                uint16_t len = (CONFIG_PCM_SAMPLE_RATE *
+                                CONFIG_WIRE_CHUNK_DURATION_MS / 1000);
 
-                audio = (int16_t *)heap_caps_malloc(wire_chunk_message.size,
-                                                    MALLOC_CAP_SPIRAM);
+                if (audio == NULL) {
+#if CONFIG_USE_PSRAM
+                  audio = (int16_t *)heap_caps_malloc(
+                      len * CHANNELS * (BITS_PER_SAMPLE / 8),
+                      MALLOC_CAP_8BIT |
+                          MALLOC_CAP_SPIRAM);  // 960*2: 20ms, 960*1: 10ms
+#else
+                  audio = (int16_t *)malloc(
+                      len * CHANNELS *
+                      (BITS_PER_SAMPLE / 8));  // 960*2: 20ms, 960*1: 10ms
+#endif
+                }
+
                 if (audio == NULL) {
                   ESP_LOGE(TAG,
                            "Failed to allocate memory for opus audio decoder");
@@ -587,34 +612,20 @@ static void http_get_task(void *pvParameters) {
                   size = wire_chunk_message.size;
                   start = wire_chunk_message.payload;
 
-                  pcm_chunk_message = (wire_chunk_message_t *)heap_caps_malloc(
-                      sizeof(wire_chunk_message_t), MALLOC_CAP_SPIRAM);
-                  if (pcm_chunk_message == NULL) {
-                    ESP_LOGE(TAG,
-                             "Failed to allocate memory for pcm chunk message");
-                  } else {
-                    pcm_chunk_message->size = size;
-                    pcm_chunk_message->timestamp = timestamp;
-                    pcm_chunk_message->payload = (char *)audio;
-                    // TODO: if wire_chunk_message_free is done
-                    // differently this copy can be avoided
-                    memcpy(pcm_chunk_message->payload, start,
-                           pcm_chunk_message->size);
+                  pcm_chunk_message.size = size;
+                  pcm_chunk_message.timestamp = timestamp;
+                  pcm_chunk_message.payload = (char *)audio;
+                  // TODO: if wire_chunk_message_free is done
+                  // differently this copy can be avoided
+                  memcpy(pcm_chunk_message.payload, start,
+                         pcm_chunk_message.size);
 
-                    dsp_processor(pcm_chunk_message->payload,
-                                  pcm_chunk_message->size, dspFlow);
+#if CONFIG_USE_DSP_PROCESSOR
+                  dsp_processor(pcm_chunk_message.payload,
+                                pcm_chunk_message.size, dspFlow);
+#endif
 
-                    if (xQueueSendToBack(playerChunkQueueHandle,
-                                         &pcm_chunk_message,
-                                         pdMS_TO_TICKS(1000)) != pdTRUE) {
-                      ESP_LOGW(TAG,
-                               "send: pcmChunkQueue full, messages waiting %d",
-                               uxQueueMessagesWaiting(playerChunkQueueHandle));
-
-                      free(pcm_chunk_message->payload);
-                      free(pcm_chunk_message);
-                    }
-                  }
+                  insert_pcm_chunk(&pcm_chunk_message);
                 }
 
                 break;
@@ -848,6 +859,10 @@ void app_main(void) {
   ESP_ERROR_CHECK(ret);
 
   esp_log_level_set("*", ESP_LOG_INFO);
+  esp_log_level_set(
+      "HEADPHONE",
+      ESP_LOG_NONE);  // if enabled these cause a timer srv stack overflow
+  esp_log_level_set("gpio", ESP_LOG_NONE);  //
 
   esp_timer_init();
 
@@ -860,7 +875,9 @@ void app_main(void) {
   i2s_mclk_gpio_select(0, 0);
   // setup_ma120();
 
+#if CONFIG_USE_DSP_PROCESSOR
   dsp_setup_flow(500, SAMPLE_RATE);
+#endif
 
   ESP_LOGI(TAG, "init player");
   playerChunkQueueHandle = init_player();
@@ -874,8 +891,8 @@ void app_main(void) {
 
   // Enable websocket server
   ESP_LOGI(TAG, "Connected to AP");
-  ESP_LOGI(TAG, "Setup ws server");
-  websocket_if_start();
+  //  ESP_LOGI(TAG, "Setup ws server");
+  //  websocket_if_start();
 
   net_mdns_register("snapclient");
 #ifdef CONFIG_SNAPCLIENT_SNTP_ENABLE
@@ -884,7 +901,7 @@ void app_main(void) {
   xTaskCreatePinnedToCore(&ota_server_task, "ota_server_task", 4096, NULL,
                           OTA_TASK_PRIORITY, t_ota_task, OTA_TASK_CORE_ID);
 
-  xTaskCreatePinnedToCore(&http_get_task, "http_get_task", 3 * 4096, NULL,
+  xTaskCreatePinnedToCore(&http_get_task, "http_get_task", 4 * 4096, NULL,
                           HTTP_TASK_PRIORITY, &t_http_get_task,
                           HTTP_TASK_CORE_ID);
   while (1) {

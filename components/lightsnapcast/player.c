@@ -2,6 +2,7 @@
  *
  */
 
+#include <string.h>
 #include <sys/time.h>
 
 #include "freertos/FreeRTOS.h"
@@ -23,7 +24,7 @@
 #define SYNC_TASK_PRIORITY 20
 #define SYNC_TASK_CORE_ID tskNO_AFFINITY
 
-static const char *TAG = "player";
+static const char *TAG = "PLAYER";
 
 /**
  * @brief Pre define APLL parameters, save compute time
@@ -65,11 +66,11 @@ static int8_t currentDir = 0;  //!< current apll direction, see apll_adjust()
 
 static QueueHandle_t pcmChunkQueueHandle = NULL;
 #define PCM_CHNK_QUEUE_LENGTH \
-  500  // TODO: one chunk is hardcoded to 20ms, change it to be dynamically
-       // adjustable.
+  50  // TODO: one chunk is hardcoded to 20ms, change it to be dynamically
+      // adjustable.
 static StaticQueue_t pcmChunkQueue;
 static uint8_t pcmChunkQueueStorageArea[PCM_CHNK_QUEUE_LENGTH *
-                                        sizeof(wire_chunk_message_t *)];
+                                        sizeof(pcm_chunk_message_t *)];
 
 static int64_t i2sDmaLAtency = 0;
 
@@ -118,7 +119,7 @@ static esp_err_t player_setup_i2s(uint32_t sample_rate, i2s_port_t i2sNum) {
 
   i2sDmaLAtency =
       (1000000LL * __dmaBufLen / SAMPLE_RATE) *
-      0.9;  // this value depends on __dmaBufLen, optimized for __dmaBufLen =
+      0.8;  // this value depends on __dmaBufLen, optimized for __dmaBufLen =
             // 480 @opus, 192000bps, complexity 10 20ms chunks it will be
             // smaller for lower values of __dmaBufLen. The delay was measured
             // against raspberry client
@@ -169,7 +170,8 @@ static esp_err_t player_setup_i2s(uint32_t sample_rate, i2s_port_t i2sNum) {
 int deinit_player(void) {
   int ret = 0;
 
-  wire_chunk_message_t *chnk = NULL;
+  //  wire_chunk_message_t *chnk = NULL;
+  pcm_chunk_message_t *chnk = NULL;
 
   // stop the task
   if (syncTaskHandle == NULL) {
@@ -186,9 +188,11 @@ int deinit_player(void) {
       ret = xQueueReceive(pcmChunkQueueHandle, &chnk, pdMS_TO_TICKS(2000));
       if (ret != pdFAIL) {
         if (chnk != NULL) {
-          free(chnk->payload);
-          free(chnk);
-          chnk = NULL;
+          //          free(chnk->payload);
+          //          free(chnk);
+          //          chnk = NULL;
+
+          free_pcm_chunk(chnk);
         }
       }
     }
@@ -232,9 +236,12 @@ QueueHandle_t init_player(void) {
 
   // create snapcast receive buffer
   if (pcmChunkQueueHandle == NULL) {
-    pcmChunkQueueHandle = xQueueCreateStatic(
-        PCM_CHNK_QUEUE_LENGTH, sizeof(wire_chunk_message_t *),
-        pcmChunkQueueStorageArea, &pcmChunkQueue);
+    //    pcmChunkQueueHandle = xQueueCreateStatic(
+    //        PCM_CHNK_QUEUE_LENGTH, sizeof(wire_chunk_message_t *),
+    //        pcmChunkQueueStorageArea, &pcmChunkQueue);
+    pcmChunkQueueHandle =
+        xQueueCreateStatic(PCM_CHNK_QUEUE_LENGTH, sizeof(pcm_chunk_message_t *),
+                           pcmChunkQueueStorageArea, &pcmChunkQueue);
   }
 
   // init diff buff median filter
@@ -530,8 +537,328 @@ void adjust_apll(int8_t direction) {
 /**
  *
  */
+int8_t free_pcm_chunk_fragments(pcm_chunk_fragment_t *fragment) {
+  //	pcm_chunk_fragment_t *tmpFragment = fragment;
+  //	ESP_LOGE(
+  //			TAG,
+  //			"TEST 2: %p %p %d", fragment, fragment->payload,
+  // fragment->size);
+
+  // free all fragments recursive
+  if (fragment->nextFragment == NULL) {
+    if (fragment->payload != NULL) {
+      free(fragment->payload);
+      fragment->payload = NULL;
+    }
+
+    if (fragment != NULL) {
+      free(fragment);
+      fragment = NULL;
+    }
+  } else {
+    free_pcm_chunk_fragments(fragment->nextFragment);
+  }
+
+  return 0;
+}
+
+/**
+ *
+ */
+int8_t free_pcm_chunk(pcm_chunk_message_t *pcmChunk) {
+  //	ESP_LOGE(
+  //			TAG,
+  //			"TEST: %p, %d.%d ",pcmChunk, pcmChunk->timestamp.sec,
+  // pcmChunk->timestamp.usec);
+
+  free_pcm_chunk_fragments(pcmChunk->fragment);
+  //	if (pcmChunk->fragment != NULL) {
+  //		free(pcmChunk->fragment);
+  pcmChunk->fragment = NULL;  // was freed in free_pcm_chunk_fragments()
+                              //	}
+
+  if (pcmChunk != NULL) {
+    free(pcmChunk);
+    pcmChunk = NULL;
+  }
+
+  return 0;
+}
+
+/**
+ *
+ */
+int8_t insert_pcm_chunk(wire_chunk_message_t *decodedWireChunk) {
+  pcm_chunk_message_t *pcmChunk;
+  size_t tmpSize;
+  size_t largestFreeBlock, freeMem;
+  int ret = -3;
+
+  // 			heap_caps_get_free_size(MALLOC_CAP_8BIT);
+  //			heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+  //          heap_caps_get_free_size(MALLOC_CAP_32BIT);
+  //			heap_caps_get_largest_free_block(MALLOC_CAP_32BIT);
+
+  if (decodedWireChunk == NULL) {
+    ESP_LOGE(TAG, "Parameter Error");
+
+    return -1;
+  }
+
+  pcmChunk = (pcm_chunk_message_t *)calloc(1, sizeof(pcm_chunk_message_t));
+  if (pcmChunk == NULL) {
+    ESP_LOGE(TAG, "Failed to allocate memory for pcm chunk message");
+
+    return -2;
+  }
+
+  pcmChunk->fragment =
+      (pcm_chunk_fragment_t *)calloc(1, sizeof(pcm_chunk_fragment_t));
+  if (pcmChunk->fragment == NULL) {
+    ESP_LOGE(TAG, "Failed to allocate memory for pcm chunk fragment");
+
+    free_pcm_chunk(pcmChunk);
+
+    return -2;
+  }
+
+  // store the timestamp
+  pcmChunk->timestamp = decodedWireChunk->timestamp;
+
+  // we got valid memory for pcm_chunk_message_t
+  // first we try to allocated 32 bit aligned memory for payload
+  // check available memory first so we can decide if we need to fragment the
+  // data
+  freeMem = heap_caps_get_free_size(MALLOC_CAP_32BIT);
+  if (freeMem >= decodedWireChunk->size) {
+    largestFreeBlock = heap_caps_get_largest_free_block(MALLOC_CAP_32BIT);
+    //		ESP_LOGI(
+    //				TAG,
+    //				"32b f %d b %d", freeMem, largestFreeBlock);
+    if (largestFreeBlock >= decodedWireChunk->size) {
+      pcmChunk->fragment->payload =
+          (char *)heap_caps_malloc(decodedWireChunk->size, MALLOC_CAP_32BIT);
+      if (pcmChunk->fragment->payload == NULL) {
+        ESP_LOGE(TAG,
+                 "Failed to allocate memory for pcm chunk fragment payload");
+
+        free_pcm_chunk(pcmChunk);
+
+        ret = -2;
+      } else {
+        // copy the whole payload to our fragment
+        memcpy(pcmChunk->fragment->payload, decodedWireChunk->payload,
+               decodedWireChunk->size);
+        pcmChunk->fragment->nextFragment = NULL;
+        pcmChunk->fragment->size = decodedWireChunk->size;
+
+        ret = 0;
+      }
+    } else {
+      pcm_chunk_fragment_t *next = NULL;
+      size_t s;
+
+      tmpSize = decodedWireChunk->size;
+      // heap_caps_aligned_alloc(sizeof(uint32_t), decodedWireChunk->size,
+      // MALLOC_CAP_32BIT);
+      pcmChunk->fragment->payload =
+          (char *)heap_caps_malloc(largestFreeBlock, MALLOC_CAP_32BIT);
+      if (pcmChunk->fragment->payload == NULL) {
+        ESP_LOGE(TAG,
+                 "Failed to allocate memory for pcm chunk fragmented payload");
+
+        free_pcm_chunk(pcmChunk);
+
+        ret = -2;
+      } else {
+        next = pcmChunk->fragment;
+        s = largestFreeBlock;
+
+        // loop until we have all data stored to a fragment
+        do {
+          // copy the whole payload to our fragment
+          memcpy(next->payload, decodedWireChunk->payload, s);
+          next->size = s;
+          tmpSize -= s;
+          decodedWireChunk->payload += s;
+
+          if (tmpSize > 0) {
+            next->nextFragment =
+                (pcm_chunk_fragment_t *)calloc(1, sizeof(pcm_chunk_fragment_t));
+            if (next->nextFragment == NULL) {
+              ESP_LOGE(
+                  TAG,
+                  "Failed to allocate memory for next pcm chunk fragment %d %d",
+                  heap_caps_get_free_size(MALLOC_CAP_8BIT),
+                  heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+
+              free_pcm_chunk(pcmChunk);
+
+              ret = -3;
+
+              break;
+            } else {
+              largestFreeBlock =
+                  heap_caps_get_largest_free_block(MALLOC_CAP_32BIT);
+              if (largestFreeBlock <= tmpSize) {
+                s = largestFreeBlock;
+              } else {
+                s = tmpSize;
+              }
+
+              next->nextFragment->payload =
+                  (char *)heap_caps_malloc(s, MALLOC_CAP_32BIT);
+              if (next->nextFragment->payload == NULL) {
+                ESP_LOGE(TAG,
+                         "Failed to allocate memory for pcm chunk next "
+                         "fragmented payload");
+
+                free_pcm_chunk(pcmChunk);
+
+                ret = -3;
+
+                break;
+              } else {
+                next = next->nextFragment;
+              }
+            }
+          }
+        } while (tmpSize);
+      }
+    }
+
+    ret = 0;
+  } else {
+    // we got valid memory for pcm_chunk_message_t
+    // no 32 bit aligned memory available, try to allocate 8 bit aligned memory
+    // for payload check available memory first so we can decide if we need to
+    // fragment the data
+    freeMem = heap_caps_get_free_size(MALLOC_CAP_8BIT);
+    if (freeMem >= decodedWireChunk->size) {
+      largestFreeBlock = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+      //			ESP_LOGI(
+      //					TAG,
+      //					"8b f %d b %d", freeMem,
+      // largestFreeBlock);
+      if (largestFreeBlock >= decodedWireChunk->size) {
+        pcmChunk->fragment->payload =
+            (char *)heap_caps_malloc(decodedWireChunk->size, MALLOC_CAP_8BIT);
+        if (pcmChunk->fragment->payload == NULL) {
+          ESP_LOGE(TAG,
+                   "Failed to allocate memory for pcm chunk fragment payload");
+
+          free_pcm_chunk(pcmChunk);
+
+          ret = -2;
+        } else {
+          // copy the whole payload to our fragment
+          memcpy(pcmChunk->fragment->payload, decodedWireChunk->payload,
+                 decodedWireChunk->size);
+          pcmChunk->fragment->nextFragment = NULL;
+          pcmChunk->fragment->size = decodedWireChunk->size;
+
+          ret = 0;
+        }
+      } else {
+        pcm_chunk_fragment_t *next = NULL;
+        size_t s;
+
+        tmpSize = decodedWireChunk->size;
+        // heap_caps_aligned_alloc(sizeof(uint32_t), decodedWireChunk->size,
+        // MALLOC_CAP_32BIT);
+        pcmChunk->fragment->payload =
+            (char *)heap_caps_malloc(largestFreeBlock, MALLOC_CAP_8BIT);
+        if (pcmChunk->fragment->payload == NULL) {
+          ESP_LOGE(
+              TAG,
+              "Failed to allocate memory for pcm chunk fragmented payload");
+
+          free_pcm_chunk(pcmChunk);
+
+          ret = -2;
+        } else {
+          next = pcmChunk->fragment;
+          s = largestFreeBlock;
+
+          // loop until we have all data stored to a fragment
+          do {
+            // copy the whole payload to our fragment
+            memcpy(next->payload, decodedWireChunk->payload, s);
+            next->size = s;
+            tmpSize -= s;
+            decodedWireChunk->payload += s;
+
+            if (tmpSize > 0) {
+              next->nextFragment = (pcm_chunk_fragment_t *)calloc(
+                  1, sizeof(pcm_chunk_fragment_t));
+              if (next->nextFragment == NULL) {
+                ESP_LOGE(TAG,
+                         "Failed to allocate memory for next pcm chunk "
+                         "fragment %d %d",
+                         heap_caps_get_free_size(MALLOC_CAP_8BIT),
+                         heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+
+                free_pcm_chunk(pcmChunk);
+
+                ret = -3;
+
+                break;
+              } else {
+                largestFreeBlock =
+                    heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+                if (largestFreeBlock <= tmpSize) {
+                  s = largestFreeBlock;
+                } else {
+                  s = tmpSize;
+                }
+
+                next->nextFragment->payload =
+                    (char *)heap_caps_malloc(s, MALLOC_CAP_8BIT);
+                if (next->nextFragment->payload == NULL) {
+                  ESP_LOGE(TAG,
+                           "Failed to allocate memory for pcm chunk next "
+                           "fragmented payload");
+
+                  free_pcm_chunk(pcmChunk);
+
+                  ret = -3;
+
+                  break;
+                } else {
+                  next = next->nextFragment;
+                }
+              }
+            }
+          } while (tmpSize);
+        }
+      }
+
+      ret = 0;
+    }
+  }
+
+  if (ret == 0) {
+    if (xQueueSendToBack(pcmChunkQueueHandle, &pcmChunk, pdMS_TO_TICKS(1000)) !=
+        pdTRUE) {
+      ESP_LOGW(TAG, "send: pcmChunkQueue full, messages waiting %d",
+               uxQueueMessagesWaiting(pcmChunkQueueHandle));
+
+      free_pcm_chunk(pcmChunk);
+    }
+  } else {
+    ESP_LOGE(TAG, "couldn't get memory to insert fragmented chunk, %d",
+             freeMem);
+  }
+
+  return ret;
+}
+
+/**
+ *
+ */
 static void snapcast_sync_task(void *pvParameters) {
-  wire_chunk_message_t *chnk = NULL;
+  //  wire_chunk_message_t *chnk = NULL;
+  pcm_chunk_message_t *chnk = NULL;
   int64_t serverNow = 0;
   int64_t age;
   BaseType_t ret;
@@ -548,7 +875,10 @@ static void snapcast_sync_task(void *pvParameters) {
   int dir = 0;
   i2s_event_t i2sEvent;
   uint32_t i2sDmaBufferCnt = 0;
-  int64_t buffer_ms_local;
+  int64_t buffer_us_local = 0, buffer_us_local_saved = 0;
+  int queueSize;
+  pcm_chunk_fragment_t *fragment = NULL;
+  size_t written;
 
   ESP_LOGI(TAG, "started sync task");
 
@@ -567,6 +897,14 @@ static void snapcast_sync_task(void *pvParameters) {
     return;
   }
 
+  /*
+  // get notification value which holds buffer_ms as communicated by
+  // snapserver. we wait forever on task creation so it holds a valid value for
+  sure xTaskNotifyWait(pdFALSE,         // Don't clear bits on entry. pdFALSE,
+  // Don't clear bits on exit &notifiedValue,  // Stores the notified value.
+                  portMAX_DELAY);
+  */
+
   while (1) {
     // get notification value which holds buffer_ms as communicated by
     // snapserver
@@ -575,7 +913,47 @@ static void snapcast_sync_task(void *pvParameters) {
                     &notifiedValue,  // Stores the notified value.
                     0);
 
-    buffer_ms_local = (int64_t)notifiedValue * 1000LL;
+    buffer_us_local = (int64_t)notifiedValue * 1000LL;
+#if !CONFIG_USE_PSRAM
+    //    if (buffer_us_local > (700LL * 1000LL)) {
+    //    	ESP_LOGE(TAG, "snapcast buffer to big (%lldus). Ensure it is max
+    //    700ms in /etc/snapserver.conf on snapserver for boards without SPI
+    //    RAM", buffer_us_local);
+    //
+    //    	return;
+    //    }
+#endif
+    //    if ((pcmChunkQueueHandle == NULL) && (buffer_ms_local > 0)) {
+    //    	queueSize = (buffer_ms_local / WIRE_CHUNK_DURATION_MS) + 1;
+    //    // +1 ensures we have always enough space even if it is not an integer
+    //    result here
+    //		pcmChunkQueueHandle = xQueueCreate(PCM_CHNK_QUEUE_LENGTH,
+    // sizeof(wire_chunk_message_t *));
+    //
+    //		buffer_ms_local_saved = buffer_ms_local;
+    //
+    //		ESP_LOGW(TAG, "created pcm chunk queue, %lld",
+    // buffer_ms_local_saved);
+    //    }
+    //    else {
+    //    	if (buffer_ms_local_saved != buffer_ms_local) {
+    //    		ESP_LOGW(TAG, "pcm chunk queue length changed from %lld
+    //    to %lld", buffer_ms_local_saved, buffer_ms_local);
+    //
+    //    		// TODO: increase queue size, free all allocated wire
+    //    chunks first, delete queue, recreate.
+    //    		//	 	 also prevent http task from accessing
+    //    queue through mutex or similar while we are doing that
+    //    		//		 maybe provide interface function for
+    //    accessing the queue
+    //    	}
+    //    }
+    //
+    //    if (pcmChunkQueueHandle == NULL) {
+    //    	vTaskDelay(1);
+    //
+    //    	continue;
+    //    }
 
     if (chnk == NULL) {
       ret = xQueueReceive(pcmChunkQueueHandle, &chnk, pdMS_TO_TICKS(2000));
@@ -593,14 +971,16 @@ static void snapcast_sync_task(void *pvParameters) {
         age = serverNow -
               ((int64_t)chnk->timestamp.sec * 1000000LL +
                (int64_t)chnk->timestamp.usec) -
-              (int64_t)buffer_ms_local + (int64_t)i2sDmaLAtency +
+              (int64_t)buffer_us_local + (int64_t)i2sDmaLAtency +
               (int64_t)DAC_OUT_BUFFER_TIME_US;
       } else {
         // ESP_LOGW(TAG, "couldn't get server now");
 
         if (chnk != NULL) {
-          free(chnk->payload);
-          free(chnk);
+          //          free(chnk->payload);
+          //          free(chnk);
+          //          chnk = NULL;
+          free_pcm_chunk(chnk);
           chnk = NULL;
         }
 
@@ -637,10 +1017,12 @@ static void snapcast_sync_task(void *pvParameters) {
       }
       */
 
-      if (chnk != NULL) {
-        p_payload = chnk->payload;
-        size = chnk->size;
-      }
+      //      if (chnk != NULL) {
+      ////        p_payload = chnk->payload;
+      ////        size = chnk->size;
+      //        p_payload = chnk->fragment->payload;
+      //        size = chnk->fragment->size;
+      //      }
 
       if (age < 0) {  // get initial sync using hardware timer
         if (initialSync == 0) {
@@ -676,7 +1058,11 @@ static void snapcast_sync_task(void *pvParameters) {
           i2s_zero_dma_buffer(I2S_PORT);
           i2s_stop(I2S_PORT);
 
-          size_t written;
+          fragment = chnk->fragment;
+          p_payload = fragment->payload;
+          size = fragment->size;
+
+          written = 0;
           if (i2s_write(I2S_PORT, p_payload, (size_t)size, &written, 0) !=
               ESP_OK) {
             ESP_LOGE(TAG, "i2s_playback_task: I2S write error");
@@ -684,10 +1070,22 @@ static void snapcast_sync_task(void *pvParameters) {
           size -= written;
           p_payload += written;
 
-          if ((chnk != NULL) && (size == 0)) {
-            free(chnk->payload);
-            free(chnk);
-            chnk = NULL;
+          //          ESP_LOGE(TAG, "wrote %d", written);
+
+          //          if ((chnk != NULL) && (size == 0)) {
+          //          free(chnk->payload);
+          //          free(chnk);
+          //          chnk = NULL;
+          //          }
+          if (size == 0) {
+            if (fragment->nextFragment != NULL) {
+              fragment = fragment->nextFragment;
+              p_payload = fragment->payload;
+              size = fragment->size;
+            } else {
+              free_pcm_chunk(chnk);
+              chnk = NULL;
+            }
           }
 
           // tg0_timer1_start((-age * 10) - alarmValSub));	// alarm a
@@ -716,36 +1114,94 @@ static void snapcast_sync_task(void *pvParameters) {
           // 100ns ticks
           age = (int64_t)timer_val - (-age);  // timer with 1µs ticks
 
-          if (i2s_write(I2S_PORT, p_payload, (size_t)size, &written,
-                        portMAX_DELAY) != ESP_OK) {
-            ESP_LOGE(TAG, "i2s_playback_task: I2S write error");
-          }
-          size -= written;
-          p_payload += written;
-
-          if ((chnk != NULL) && (size == 0)) {
-            free(chnk->payload);
-            free(chnk);
-            chnk = NULL;
-
-            ret = xQueueReceive(pcmChunkQueueHandle, &chnk, portMAX_DELAY);
-            if (ret != pdFAIL) {
-              p_payload = chnk->payload;
-              size = chnk->size;
+          // check if we need to write remaining data
+          if (size != 0) {
+            do {
+              written = 0;
               if (i2s_write(I2S_PORT, p_payload, (size_t)size, &written,
                             portMAX_DELAY) != ESP_OK) {
                 ESP_LOGE(TAG, "i2s_playback_task: I2S write error");
               }
+              if (written < size) {
+                ESP_LOGE(TAG, "i2s_playback_task: I2S didn't write all data");
+              }
               size -= written;
               p_payload += written;
 
-              if ((chnk != NULL) && (size == 0)) {
-                free(chnk->payload);
-                free(chnk);
-                chnk = NULL;
+              if (size == 0) {
+                if (fragment->nextFragment != NULL) {
+                  fragment = fragment->nextFragment;
+                  p_payload = fragment->payload;
+                  size = fragment->size;
+                } else {
+                  free_pcm_chunk(chnk);
+                  chnk = NULL;
+
+                  break;
+                }
               }
-            }
+            } while (1);
           }
+
+          // now we get the next chunk and write it to I2S DMA buffer
+          ret = xQueueReceive(pcmChunkQueueHandle, &chnk, pdMS_TO_TICKS(2000));
+          if (ret != pdFAIL) {
+            fragment = chnk->fragment;
+            p_payload = fragment->payload;
+            size = fragment->size;
+
+            do {
+              if (i2s_write(I2S_PORT, p_payload, (size_t)size, &written,
+                            portMAX_DELAY) != ESP_OK) {
+                ESP_LOGE(TAG, "i2s_playback_task: I2S write error");
+              }
+              if (written < size) {
+                ESP_LOGE(TAG, "i2s_playback_task: I2S didn't write all data");
+              }
+              size -= written;
+              p_payload += written;
+
+              if (size == 0) {
+                if (fragment->nextFragment != NULL) {
+                  fragment = fragment->nextFragment;
+                  p_payload = fragment->payload;
+                  size = fragment->size;
+                } else {
+                  free_pcm_chunk(chnk);
+                  chnk = NULL;
+
+                  break;
+                }
+              }
+            } while (1);
+          } else {
+            ESP_LOGE(TAG, "i2s_playback_task: couldn't write 2nd chunk");
+          }
+
+          //          if ((chnk != NULL) && (size == 0)) {
+          //	          free(chnk->payload);
+          //	          free(chnk);
+          //	          chnk = NULL;
+          //
+          //            ret = xQueueReceive(pcmChunkQueueHandle, &chnk,
+          //            portMAX_DELAY); if (ret != pdFAIL) {
+          //              p_payload = chnk->payload;
+          //              size = chnk->size;
+          //              if (i2s_write(I2S_PORT, p_payload, (size_t)size,
+          //              &written,
+          //                            portMAX_DELAY) != ESP_OK) {
+          //                ESP_LOGE(TAG, "i2s_playback_task: I2S write error");
+          //              }
+          //              size -= written;
+          //              p_payload += written;
+          //
+          //              if ((chnk != NULL) && (size == 0)) {
+          //                free(chnk->payload);
+          //                free(chnk);
+          //                chnk = NULL;
+          //              }
+          //            }
+          //          }
 
           initialSync = 1;
 
@@ -755,8 +1211,10 @@ static void snapcast_sync_task(void *pvParameters) {
         }
       } else if ((age > 0) && (initialSync == 0)) {
         if (chnk != NULL) {
-          free(chnk->payload);
-          free(chnk);
+          //          free(chnk->payload);
+          //          free(chnk);
+          //          chnk = NULL;
+          free_pcm_chunk(chnk);
           chnk = NULL;
         }
 
@@ -787,8 +1245,10 @@ static void snapcast_sync_task(void *pvParameters) {
           if ((avg < -hardResyncThreshold) || (avg > hardResyncThreshold) ||
               (initialSync == 0)) {
             if (chnk != NULL) {
-              free(chnk->payload);
-              free(chnk);
+              //              free(chnk->payload);
+              //              free(chnk);
+              //              chnk = NULL;
+              free_pcm_chunk(chnk);
               chnk = NULL;
             }
 
@@ -885,29 +1345,61 @@ static void snapcast_sync_task(void *pvParameters) {
           adjust_apll(dir);
         }
 
-        if (i2s_write(I2S_PORT, p_payload, (size_t)size, &written,
-                      portMAX_DELAY) != ESP_OK) {
-          ESP_LOGE(TAG, "i2s_playback_task: I2S write error");
-        }
-        size -= written;
-        p_payload += written;
+        fragment = chnk->fragment;
+        p_payload = fragment->payload;
+        size = fragment->size;
 
-        if ((chnk != NULL) && (size == 0)) {
-          free(chnk->payload);
-          free(chnk);
-          chnk = NULL;
-        }
+        do {
+          written = 0;
+          if (i2s_write(I2S_PORT, p_payload, (size_t)size, &written,
+                        portMAX_DELAY) != ESP_OK) {
+            ESP_LOGE(TAG, "i2s_playback_task: I2S write error");
+          }
+          if (written < size) {
+            ESP_LOGE(TAG, "i2s_playback_task: I2S didn't write all data");
+          }
+          size -= written;
+          p_payload += written;
+
+          if (size == 0) {
+            if (fragment->nextFragment != NULL) {
+              fragment = fragment->nextFragment;
+              p_payload = fragment->payload;
+              size = fragment->size;
+
+              ESP_LOGI(TAG, "i2s_playback_task: fragmented");
+            } else {
+              free_pcm_chunk(chnk);
+              chnk = NULL;
+
+              break;
+            }
+          }
+        } while (1);
+
+        //        if (i2s_write(I2S_PORT, p_payload, (size_t)size, &written,
+        //                      portMAX_DELAY) != ESP_OK) {
+        //          ESP_LOGE(TAG, "i2s_playback_task: I2S write error");
+        //        }
+        //        size -= written;
+        //        p_payload += written;
+        //
+        //        if ((chnk != NULL) && (size == 0)) {
+        //          free(chnk->payload);
+        //          free(chnk);
+        //          chnk = NULL;
+        //        }
       }
 
       int64_t t;
       get_diff_to_server(&t);
       ESP_LOGI(TAG, "%d: %lldus, %lldus %lldus", dir, age, avg, t);
 
-      if ((chnk != NULL) && (size == 0)) {
-        free(chnk->payload);
-        free(chnk);
-        chnk = NULL;
-      }
+      //      if ((chnk != NULL) && (size == 0)) {
+      //          free(chnk->payload);
+      //          free(chnk);
+      //          chnk = NULL;
+      //      }
     } else {
       int64_t t;
       get_diff_to_server(&t);

@@ -4,13 +4,16 @@
 #include <string.h>
 #include <sys/time.h>
 
+#include "freertos/FreeRTOS.h"
+#if CONFIG_USE_DSP_PROCESSOR
+#include "freertos/ringbuf.h"
+#include "freertos/task.h"
+
 #include "driver/i2s.h"
 #include "dsps_biquad.h"
 #include "dsps_biquad_gen.h"
 #include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/ringbuf.h"
-#include "freertos/task.h"
+
 //#include "websocket_if.h"
 #include "driver/dac.h"
 #include "driver/i2s.h"
@@ -27,229 +30,224 @@
 
 static const char *TAG = "dspProc";
 
-static uint32_t bits_per_sample = CONFIG_BITS_PER_SAMPLE;
+static const uint8_t chunkDurationMs = CONFIG_WIRE_CHUNK_DURATION_MS;
+static const uint32_t sampleRate = CONFIG_PCM_SAMPLE_RATE;
+// static const uint8_t channels = CONFIG_CHANNELS;
+// static const uint8_t bitsPerSample = CONFIG_BITS_PER_SAMPLE;
 
 // TODO: allocate these buffers dynamically from heap
-static float sbuffer0[1024];
-static float sbuffer1[1024];
-static float sbuffer2[1024];
-static float sbufout0[1024];
-static float sbufout1[1024];
-static float sbufout2[1024];
-static float sbuftmp0[1024];
-static uint8_t dsp_audio[4 * 1024];
-static uint8_t dsp_audio1[4 * 1024];
+static float *sbuffer0 = NULL;  //[1024];
+// static float sbuffer1[1024];
+// static float sbuffer2[1024];
+static float *sbufout0 = NULL;  //[1024];
+// static float sbufout1[1024];
+// static float sbufout2[1024];
+static float *sbuftmp0 = NULL;  //[1024];
+// static uint8_t dsp_audio[4 * 1024];
+// static uint8_t dsp_audio1[4 * 1024];
 
 extern uint8_t muteCH[4];
 
 ptype_t bq[8];
 
-/*
-void setup_dsp_i2s(uint32_t sample_rate, bool slave_i2s) {
-  i2s_config_t i2s_config0 = {
-      .mode = I2S_MODE_MASTER | I2S_MODE_TX,  // Only TX
-      .sample_rate = sample_rate,
-      .bits_per_sample = bits_per_sample,
-      .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,  // 2-channels
-      .communication_format = I2S_COMM_FORMAT_I2S,
-      .dma_buf_count = 8,
-      .dma_buf_len = 480,
-      .intr_alloc_flags = 1,  // Default interrupt priority
-      .use_apll = true,
-      .fixed_mclk = 0,
-      .tx_desc_auto_clear = true  // Auto clear tx descriptor on underflow
-  };
-
-  i2s_pin_config_t pin_config0;
-  get_i2s_pins(I2S_NUM_0, &pin_config0);
-
-  i2s_driver_install(0, &i2s_config0, 1, &i2s_queue);
-  i2s_zero_dma_buffer(0);
-  i2s_set_pin(0, &pin_config0);
-  // gpio_set_drive_capability(CONFIG_MASTER_I2S_BCK_PIN, 0);
-  // gpio_set_drive_capability(CONFIG_MASTER_I2S_LRCK_PIN, 0);
-  // gpio_set_drive_capability(CONFIG_MASTER_I2S_DATAOUT_PIN, 0);
-  ESP_LOGI("I2S", "I2S interface master setup");
-  if (slave_i2s) {
-    i2s_config_t i2s_config1 = {
-        .mode = I2S_MODE_SLAVE | I2S_MODE_TX,  // Only TX - Slave channel
-        .sample_rate = sample_rate,
-        .bits_per_sample = bits_per_sample,
-        .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,  // 2-channels
-        .communication_format = I2S_COMM_FORMAT_I2S,
-        .dma_buf_count = 8,
-        .dma_buf_len = 480,
-        .use_apll = true,
-        .fixed_mclk = 0,
-        .tx_desc_auto_clear = true  // Auto clear tx descriptor on underflow
-    };
-    i2s_pin_config_t pin_config1;
-    get_i2s_pins(I2S_NUM_1, &pin_config1);
-    i2s_driver_install(I2S_NUM_1, &i2s_config1, 7, &i2s_queue);
-    i2s_zero_dma_buffer(1);
-    i2s_set_pin(1, &pin_config1);
-  }
-}
-*/
-
 int dsp_processor(char *audio, size_t chunk_size, dspFlows_t dspFlow) {
   double dynamic_vol = 1.0;
   int16_t len = chunk_size / 4;
+  int16_t valint;
+  uint16_t i;
 
   // ESP_LOGI(TAG,
   //        "got data %p, %d, %u", audio, chunk_size, dspFlow);
 
-  for (uint16_t i = 0; i < len; i++) {
-    sbuffer0[i] =
-        dynamic_vol * 0.5 *
-        ((float)((int16_t)(audio[i * 4 + 1] << 8) + audio[i * 4 + 0])) / 32768;
-    sbuffer1[i] =
-        dynamic_vol * 0.5 *
-        ((float)((int16_t)(audio[i * 4 + 3] << 8) + audio[i * 4 + 2])) / 32768;
-    sbuffer2[i] = ((sbuffer0[i] / 2) + (sbuffer1[i] / 2));
+  if ((sbuffer0 == NULL) || (sbufout0 == NULL) || (sbuftmp0 == NULL)) {
+    ESP_LOGE(TAG, "No Memory allocated for dsp_processor %p %p %p", sbuffer0,
+             sbufout0, sbuftmp0);
+
+    return -1;
   }
+
+  /*
+    for (uint16_t i = 0; i < len; i++) {
+      sbuffer0[i] =
+          dynamic_vol * 0.5 *
+          ((float)((int16_t)(audio[i * 4 + 1] << 8) + audio[i * 4 + 0])) /
+    32768; sbuffer1[i] = dynamic_vol * 0.5 *
+          ((float)((int16_t)(audio[i * 4 + 3] << 8) + audio[i * 4 + 2])) /
+    32768; sbuffer2[i] = ((sbuffer0[i] / 2) + (sbuffer1[i] / 2));
+    }
+    */
 
   switch (dspFlow) {
     case dspfStereo: {
-      for (uint16_t i = 0; i < len; i++) {
-        audio[i * 4 + 0] = (muteCH[0] == 1) ? 0 : audio[i * 4 + 0];
-        audio[i * 4 + 1] = (muteCH[0] == 1) ? 0 : audio[i * 4 + 1];
-        audio[i * 4 + 2] = (muteCH[1] == 1) ? 0 : audio[i * 4 + 2];
-        audio[i * 4 + 3] = (muteCH[1] == 1) ? 0 : audio[i * 4 + 3];
-      }
+      //      for (i = 0; i < len; i++) {
+      //        audio[i * 4 + 0] = (muteCH[0] == 1) ? 0 : audio[i * 4 + 0];
+      //        audio[i * 4 + 1] = (muteCH[0] == 1) ? 0 : audio[i * 4 + 1];
+      //        audio[i * 4 + 2] = (muteCH[1] == 1) ? 0 : audio[i * 4 + 2];
+      //        audio[i * 4 + 3] = (muteCH[1] == 1) ? 0 : audio[i * 4 + 3];
+      //      }
+
+      // mute is done through audio_hal_set_mute()
     } break;
 
     case dspfBassBoost: {  // CH0 low shelf 6dB @ 400Hz
+      // channel 0
+      for (i = 0; i < len; i++) {
+        sbuffer0[i] =
+            dynamic_vol * 0.5 *
+            ((float)((int16_t)(audio[i * 4 + 1] << 8) + audio[i * 4 + 0])) /
+            32768;
+      }
       BIQUAD(sbuffer0, sbufout0, len, bq[6].coeffs, bq[6].w);
-      BIQUAD(sbuffer1, sbufout1, len, bq[7].coeffs, bq[7].w);
-      int16_t valint[2];
-      for (uint16_t i = 0; i < len; i++) {
-        valint[0] =
-            (muteCH[0] == 1) ? (int16_t)0 : (int16_t)(sbufout0[i] * 32768);
-        valint[1] =
-            (muteCH[1] == 1) ? (int16_t)0 : (int16_t)(sbufout1[i] * 32768);
-        dsp_audio[i * 4 + 0] = (valint[0] & 0xff);
-        dsp_audio[i * 4 + 1] = ((valint[0] & 0xff00) >> 8);
-        dsp_audio[i * 4 + 2] = (valint[1] & 0xff);
-        dsp_audio[i * 4 + 3] = ((valint[1] & 0xff00) >> 8);
+
+      for (i = 0; i < len; i++) {
+        valint = (int16_t)(sbufout0[i] * 32768);
+
+        audio[i * 4 + 0] = (valint & 0x00ff);
+        audio[i * 4 + 1] = ((valint & 0xff00) >> 8);
       }
 
-      // TODO: this copy could be avoided if dsp_audio buffers are
-      // allocated dynamically and pointers are exchanged after
-      // audio was freed
-      memcpy(audio, dsp_audio, chunk_size);
+      // channel 1
+      for (i = 0; i < len; i++) {
+        sbuffer0[i] =
+            dynamic_vol * 0.5 *
+            ((float)((int16_t)(audio[i * 4 + 3] << 8) + audio[i * 4 + 2])) /
+            32768;
+      }
+      BIQUAD(sbuffer0, sbufout0, len, bq[7].coeffs, bq[7].w);
+
+      for (i = 0; i < len; i++) {
+        valint = (int16_t)(sbufout0[i] * 32768);
+        audio[i * 4 + 2] = (valint & 0x00ff);
+        audio[i * 4 + 3] = ((valint & 0xff00) >> 8);
+      }
 
     } break;
 
     case dspfBiamp: {
       // Process audio ch0 LOW PASS FILTER
+      for (i = 0; i < len; i++) {
+        sbuffer0[i] =
+            dynamic_vol * 0.5 *
+            ((float)((int16_t)(audio[i * 4 + 1] << 8) + audio[i * 4 + 0])) /
+            32768;
+      }
       BIQUAD(sbuffer0, sbuftmp0, len, bq[0].coeffs, bq[0].w);
       BIQUAD(sbuftmp0, sbufout0, len, bq[1].coeffs, bq[1].w);
 
-      // Process audio ch1 HIGH PASS FILTER
-      BIQUAD(sbuffer0, sbuftmp0, len, bq[2].coeffs, bq[2].w);
-      BIQUAD(sbuftmp0, sbufout1, len, bq[3].coeffs, bq[3].w);
-
-      int16_t valint[2];
-      for (uint16_t i = 0; i < len; i++) {
-        valint[0] =
-            (muteCH[0] == 1) ? (int16_t)0 : (int16_t)(sbufout0[i] * 32768);
-        valint[1] =
-            (muteCH[1] == 1) ? (int16_t)0 : (int16_t)(sbufout1[i] * 32768);
-        dsp_audio[i * 4 + 0] = (valint[0] & 0xff);
-        dsp_audio[i * 4 + 1] = ((valint[0] & 0xff00) >> 8);
-        dsp_audio[i * 4 + 2] = (valint[1] & 0xff);
-        dsp_audio[i * 4 + 3] = ((valint[1] & 0xff00) >> 8);
+      for (i = 0; i < len; i++) {
+        valint = (int16_t)(sbufout0[i] * 32768);
+        audio[i * 4 + 0] = (valint & 0x00ff);
+        audio[i * 4 + 1] = ((valint & 0xff00) >> 8);
       }
 
-      // TODO: this copy could be avoided if dsp_audio buffers are
-      // allocated dynamically and pointers are exchanged after
-      // audio was freed
-      memcpy(audio, dsp_audio, chunk_size);
+      // Process audio ch1 HIGH PASS FILTER
+      for (i = 0; i < len; i++) {
+        sbuffer0[i] =
+            dynamic_vol * 0.5 *
+            ((float)((int16_t)(audio[i * 4 + 3] << 8) + audio[i * 4 + 2])) /
+            32768;
+      }
+      BIQUAD(sbuffer0, sbuftmp0, len, bq[2].coeffs, bq[2].w);
+      BIQUAD(sbuftmp0, sbufout0, len, bq[3].coeffs, bq[3].w);
+
+      for (i = 0; i < len; i++) {
+        valint = (int16_t)(sbufout0[i] * 32768);
+        audio[i * 4 + 2] = (valint & 0x00ff);
+        audio[i * 4 + 3] = ((valint & 0xff00) >> 8);
+      }
 
     } break;
 
     case dspf2DOT1: {  // Process audio L + R LOW PASS FILTER
-      BIQUAD(sbuffer2, sbuftmp0, len, bq[0].coeffs, bq[0].w);
-      BIQUAD(sbuftmp0, sbufout2, len, bq[1].coeffs, bq[1].w);
+      ESP_LOGW(TAG, "dspf2DOT1, not implemented yet, using stereo instead");
 
-      // Process audio L HIGH PASS FILTER
-      BIQUAD(sbuffer0, sbuftmp0, len, bq[2].coeffs, bq[2].w);
-      BIQUAD(sbuftmp0, sbufout0, len, bq[3].coeffs, bq[3].w);
+      /*
+         BIQUAD(sbuffer2, sbuftmp0, len, bq[0].coeffs, bq[0].w);
+         BIQUAD(sbuftmp0, sbufout2, len, bq[1].coeffs, bq[1].w);
 
-      // Process audio R HIGH PASS FILTER
-      BIQUAD(sbuffer1, sbuftmp0, len, bq[4].coeffs, bq[4].w);
-      BIQUAD(sbuftmp0, sbufout1, len, bq[5].coeffs, bq[5].w);
+         // Process audio L HIGH PASS FILTER
+         BIQUAD(sbuffer0, sbuftmp0, len, bq[2].coeffs, bq[2].w);
+         BIQUAD(sbuftmp0, sbufout0, len, bq[3].coeffs, bq[3].w);
 
-      int16_t valint[5];
-      for (uint16_t i = 0; i < len; i++) {
-        valint[0] =
-            (muteCH[0] == 1) ? (int16_t)0 : (int16_t)(sbufout0[i] * 32768);
-        valint[1] =
-            (muteCH[1] == 1) ? (int16_t)0 : (int16_t)(sbufout1[i] * 32768);
-        valint[2] =
-            (muteCH[2] == 1) ? (int16_t)0 : (int16_t)(sbufout2[i] * 32768);
-        dsp_audio[i * 4 + 0] = (valint[2] & 0xff);
-        dsp_audio[i * 4 + 1] = ((valint[2] & 0xff00) >> 8);
-        dsp_audio[i * 4 + 2] = 0;
-        dsp_audio[i * 4 + 3] = 0;
+         // Process audio R HIGH PASS FILTER
+         BIQUAD(sbuffer1, sbuftmp0, len, bq[4].coeffs, bq[4].w);
+         BIQUAD(sbuftmp0, sbufout1, len, bq[5].coeffs, bq[5].w);
 
-        dsp_audio1[i * 4 + 0] = (valint[0] & 0xff);
-        dsp_audio1[i * 4 + 1] = ((valint[0] & 0xff00) >> 8);
-        dsp_audio1[i * 4 + 2] = (valint[1] & 0xff);
-        dsp_audio1[i * 4 + 3] = ((valint[1] & 0xff00) >> 8);
-      }
+         int16_t valint[5];
+         for (uint16_t i = 0; i < len; i++) {
+           valint[0] =
+               (muteCH[0] == 1) ? (int16_t)0 : (int16_t)(sbufout0[i] * 32768);
+           valint[1] =
+               (muteCH[1] == 1) ? (int16_t)0 : (int16_t)(sbufout1[i] * 32768);
+           valint[2] =
+               (muteCH[2] == 1) ? (int16_t)0 : (int16_t)(sbufout2[i] * 32768);
+           dsp_audio[i * 4 + 0] = (valint[2] & 0xff);
+           dsp_audio[i * 4 + 1] = ((valint[2] & 0xff00) >> 8);
+           dsp_audio[i * 4 + 2] = 0;
+           dsp_audio[i * 4 + 3] = 0;
 
-      // TODO: this copy could be avoided if dsp_audio buffers are
-      // allocated dynamically and pointers are exchanged after
-      // audio was freed
-      memcpy(audio, dsp_audio, chunk_size);
+           dsp_audio1[i * 4 + 0] = (valint[0] & 0xff);
+           dsp_audio1[i * 4 + 1] = ((valint[0] & 0xff00) >> 8);
+           dsp_audio1[i * 4 + 2] = (valint[1] & 0xff);
+           dsp_audio1[i * 4 + 3] = ((valint[1] & 0xff00) >> 8);
+         }
 
-      ESP_LOGW(TAG, "Don't know what to do with dsp_audio1");
+         // TODO: this copy could be avoided if dsp_audio buffers are
+         // allocated dynamically and pointers are exchanged after
+         // audio was freed
+         memcpy(audio, dsp_audio, chunk_size);
 
+         ESP_LOGW(TAG, "Don't know what to do with dsp_audio1");
+      */
     } break;
 
     case dspfFunkyHonda: {  // Process audio L + R LOW PASS FILTER
-      BIQUAD(sbuffer2, sbuftmp0, len, bq[0].coeffs, bq[0].w);
-      BIQUAD(sbuftmp0, sbufout2, len, bq[1].coeffs, bq[1].w);
+      ESP_LOGW(TAG,
+               "dspfFunkyHonda, not implemented yet, using stereo instead");
+      /*
+                                    BIQUAD(sbuffer2, sbuftmp0, len,
+         bq[0].coeffs, bq[0].w); BIQUAD(sbuftmp0, sbufout2, len, bq[1].coeffs,
+         bq[1].w);
 
-      // Process audio L HIGH PASS FILTER
-      BIQUAD(sbuffer0, sbuftmp0, len, bq[2].coeffs, bq[2].w);
-      BIQUAD(sbuftmp0, sbufout0, len, bq[3].coeffs, bq[3].w);
+                                    // Process audio L HIGH PASS FILTER
+                                    BIQUAD(sbuffer0, sbuftmp0, len,
+         bq[2].coeffs, bq[2].w); BIQUAD(sbuftmp0, sbufout0, len, bq[3].coeffs,
+         bq[3].w);
 
-      // Process audio R HIGH PASS FILTER
-      BIQUAD(sbuffer1, sbuftmp0, len, bq[4].coeffs, bq[4].w);
-      BIQUAD(sbuftmp0, sbufout1, len, bq[5].coeffs, bq[5].w);
+                                    // Process audio R HIGH PASS FILTER
+                                    BIQUAD(sbuffer1, sbuftmp0, len,
+         bq[4].coeffs, bq[4].w); BIQUAD(sbuftmp0, sbufout1, len, bq[5].coeffs,
+         bq[5].w);
 
-      uint16_t scale = 16384;  // 32768
-      int16_t valint[5];
-      for (uint16_t i = 0; i < len; i++) {
-        valint[0] =
-            (muteCH[0] == 1) ? (int16_t)0 : (int16_t)(sbufout0[i] * scale);
-        valint[1] =
-            (muteCH[1] == 1) ? (int16_t)0 : (int16_t)(sbufout1[i] * scale);
-        valint[2] =
-            (muteCH[2] == 1) ? (int16_t)0 : (int16_t)(sbufout2[i] * scale);
-        valint[3] = valint[0] + valint[2];
-        valint[4] = -valint[2];
-        valint[5] = -valint[1] - valint[2];
-        dsp_audio[i * 4 + 0] = (valint[3] & 0xff);
-        dsp_audio[i * 4 + 1] = ((valint[3] & 0xff00) >> 8);
-        dsp_audio[i * 4 + 2] = (valint[2] & 0xff);
-        dsp_audio[i * 4 + 3] = ((valint[2] & 0xff00) >> 8);
+                                    uint16_t scale = 16384;  // 32768
+                                    int16_t valint[5];
+                                    for (uint16_t i = 0; i < len; i++) {
+                                      valint[0] =
+                                          (muteCH[0] == 1) ? (int16_t)0 :
+         (int16_t)(sbufout0[i] * scale); valint[1] = (muteCH[1] == 1) ?
+         (int16_t)0 : (int16_t)(sbufout1[i] * scale); valint[2] = (muteCH[2] ==
+         1) ? (int16_t)0 : (int16_t)(sbufout2[i] * scale); valint[3] = valint[0]
+         + valint[2]; valint[4] = -valint[2]; valint[5] = -valint[1] -
+         valint[2]; dsp_audio[i * 4 + 0] = (valint[3] & 0xff); dsp_audio[i * 4 +
+         1] = ((valint[3] & 0xff00) >> 8); dsp_audio[i * 4 + 2] = (valint[2] &
+         0xff); dsp_audio[i * 4 + 3] = ((valint[2] & 0xff00) >> 8);
 
-        dsp_audio1[i * 4 + 0] = (valint[4] & 0xff);
-        dsp_audio1[i * 4 + 1] = ((valint[4] & 0xff00) >> 8);
-        dsp_audio1[i * 4 + 2] = (valint[5] & 0xff);
-        dsp_audio1[i * 4 + 3] = ((valint[5] & 0xff00) >> 8);
-      }
+                                      dsp_audio1[i * 4 + 0] = (valint[4] &
+         0xff); dsp_audio1[i * 4 + 1] = ((valint[4] & 0xff00) >> 8);
+                                      dsp_audio1[i * 4 + 2] = (valint[5] &
+         0xff); dsp_audio1[i * 4 + 3] = ((valint[5] & 0xff00) >> 8);
+                                    }
 
-      // TODO: this copy could be avoided if dsp_audio buffers are
-      // allocated dynamically and pointers are exchanged after
-      // audio was freed
-      memcpy(audio, dsp_audio, chunk_size);
+                                    // TODO: this copy could be avoided if
+         dsp_audio buffers are
+                                    // allocated dynamically and pointers are
+         exchanged after
+                                    // audio was freed
+                                    memcpy(audio, dsp_audio, chunk_size);
 
-      ESP_LOGW(TAG, "Don't know what to do with dsp_audio1");
+                                    ESP_LOGW(TAG, "Don't know what to do with
+         dsp_audio1");
+                                    */
 
     } break;
 
@@ -275,6 +273,7 @@ int dsp_processor(char *audio, size_t chunk_size, dspFlows_t dspFlow) {
 
 void dsp_setup_flow(double freq, uint32_t samplerate) {
   float f = freq / samplerate / 2.0;
+  uint16_t len = (sampleRate * chunkDurationMs / 1000);
 
   bq[0] = (ptype_t){LPF, f, 0, 0.707, NULL, NULL, {0, 0, 0, 0, 0}, {0, 0}};
   bq[1] = (ptype_t){LPF, f, 0, 0.707, NULL, NULL, {0, 0, 0, 0, 0}, {0, 0}};
@@ -311,6 +310,27 @@ void dsp_setup_flow(double freq, uint32_t samplerate) {
     }
     printf("\n");
   }
+
+  sbuffer0 = (float *)heap_caps_malloc(sizeof(float) * len, MALLOC_CAP_8BIT);
+  sbufout0 = (float *)heap_caps_malloc(sizeof(float) * len, MALLOC_CAP_8BIT);
+  sbuftmp0 = (float *)heap_caps_malloc(sizeof(float) * len, MALLOC_CAP_8BIT);
+  if ((sbuffer0 == NULL) || (sbufout0 == NULL) || (sbuftmp0 == NULL)) {
+    ESP_LOGE(TAG,
+             "Failed to allocate initial memory for dsp_processor %p %p %p",
+             sbuffer0, sbufout0, sbuftmp0);
+
+    if (sbuffer0) {
+      free(sbuffer0);
+    }
+    if (sbufout0) {
+      free(sbufout0);
+    }
+    if (sbuftmp0) {
+      free(sbuftmp0);
+    }
+  } else {
+    ESP_LOGI(TAG, "GOT memory for dsp_processor %p %p", sbuffer0, sbufout0);
+  }
 }
 
 void dsp_set_xoverfreq(uint8_t freqh, uint8_t freql, uint32_t samplerate) {
@@ -339,3 +359,4 @@ void dsp_set_xoverfreq(uint8_t freqh, uint8_t freql, uint32_t samplerate) {
     }
   }
 }
+#endif

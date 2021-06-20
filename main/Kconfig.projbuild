@@ -9,20 +9,22 @@ menu "Snapcast Configuration"
     config SNAPSERVER_HOST
         string "Snapserver host"
         default "192.168.1.158"
+        depends on !SNAPSERVER_USE_MDNS
         help
             Host (ip or name) of snapserver to connect to if mDNS is disabled or the mDNS resolution fails.
 
     config SNAPSERVER_PORT
         int "Snapserver port"
         default 1704
+        depends on !SNAPSERVER_USE_MDNS
         help
             Port of the snapserver to connect to.
 
     config SNAPCLIENT_BUFF_LEN
-        int "snapcast buffer len"
+        int "snapcast protocol buffer len"
         default 4000
         help
-            Size of the snapclient buffer (in bytes).
+            Size of the snapclient protocol messages buffer (in bytes).
 
     config SNAPCLIENT_NAME
         string "snapclient name"
