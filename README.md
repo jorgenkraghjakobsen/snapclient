@@ -90,7 +90,7 @@ sample manipulation needed.
 
 Clone this repo:
 
-    git clone https://github.com/jorgenkraghjakobsen/snapclint
+    git clone https://github.com/jorgenkraghjakobsen/snapclient
 
 Update third party code (opus and esp-dsp):
 
