@@ -12,7 +12,7 @@
 
 // The maximum number of data points bufferred for each stats. Old data points
 // will be shifted out when the buffer is full.
-const MAX_STATS_DATA_POINT_BUFFER_SIZE = 1000;
+const MAX_STATS_DATA_POINT_BUFFER_SIZE = 200;
 
 const TimelineDataSeries = (function() {
   /**
@@ -182,7 +182,7 @@ const TimelineGraphView = (function() {
     this.graph_ = null;
 
     // Horizontal scale factor, in terms of milliseconds per pixel.
-    this.scale_ = 1000;
+    this.scale_ = 400;
 
     // Initialize the scrollbar.
     this.updateScrollbarRange_(true);
@@ -337,7 +337,8 @@ const TimelineGraphView = (function() {
       context.strokeStyle = GRID_COLOR;
       context.strokeRect(0, 0, width - 1, height - 1);
 
-      if (this.graph_) {
+      
+      if (this.graph_ ) {
         // Layout graph and have them draw their tick marks.
         this.graph_.layout(
           width, height, fontHeight, visibleStartTime, this.scale_);
@@ -481,21 +482,23 @@ const TimelineGraphView = (function() {
 
         // Find largest value.
         let max = 0;
-        let min = 0;
+        let min = 100000000;
         for (let i = 0; i < this.dataSeries_.length; ++i) {
           let values = this.getValues(this.dataSeries_[i]);
           if (!values) {
             continue;
           }
+          console.log(values);
           for (let j = 0; j < values.length; ++j) {
             if (values[j] > max) {
               max = values[j];
             } else if (values[j] < min) {
               min = values[j];
             }
+            
           }
         }
-
+        console.log(min, max);
         this.layoutLabels_(min, max);
       },
 
