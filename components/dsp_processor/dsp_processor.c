@@ -162,12 +162,14 @@ static void dsp_i2s_task_handler(void *arg) {
             } else {
               flow_state = 2;
               flow_drain_counter = 20;
+              playback_synced = 0;
             }
             break;
           case 1:  // Server has muted this channel. Turn down the volume over
                    // next 10 packages
             flow_state = 1;
             flow_drain_counter = 20;
+            playback_synced = 0;
             break;
           case 0:  // Reset sync counter and
             flow_state = 0;
@@ -223,7 +225,8 @@ static void dsp_i2s_task_handler(void *arg) {
       agesec -= 1;
     }
     age = agesec * 1000 + ageusec / 1000;
-
+    if ( age < 0 ) { age = 0;  }
+  
     if (playback_synced == 1) {
       if (age < buffer_ms) {  // Too slow speedup playback
         // rtc_clk_apll_enable(1, sdm0, sdm1, sdm2, odir);

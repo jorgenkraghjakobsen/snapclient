@@ -109,7 +109,7 @@ static void http_get_task(void *pvParameters) {
   uint32_t cnt = 0;
   int chunk_res;
   ESP_LOGI("I2S", "Call dsp setup" );
-  dsp_i2s_task_init(44100, false);
+  dsp_i2s_task_init(48000, false);
 
   while (1) {
     /* Wait for the callback to set the CONNECTED_BIT in the
@@ -466,14 +466,14 @@ static void http_get_task(void *pvParameters) {
           trx.tv_usec = base_message.received.usec;
 
           timersub(&trx, &ttx, &tdif);
-          timeravg(&tavg,&tdif);
-          ESP_LOGI(TAG, "Tclientdif :% 11ld.%03ld ", tdif.tv_sec , tdif.tv_usec/1000);
+          //timeravg(&tavg,&tdif);
+          //ESP_LOGI(TAG, "Tclientdif :% 11ld.%03ld ", tdif.tv_sec , tdif.tv_usec/1000);
           char retbuf[10];
           retbuf[0] = 5; 
           retbuf[1] = 5;
           uint32_t usec = tdif.tv_usec;
           uint32_t uavg = tavg.tv_usec;
-          ESP_LOGI(TAG, "Tclientdif : return value %d ",uavg); 
+          //ESP_LOGI(TAG, "Tclientdif : return value %d ",uavg); 
           
           retbuf[2] = (usec & 0xff000000) >> 24 ;
           retbuf[3] = (usec & 0x00ff0000) >> 16 ; 
@@ -483,7 +483,7 @@ static void http_get_task(void *pvParameters) {
           retbuf[7] = (uavg & 0x00ff0000) >> 16 ; 
           retbuf[8] = (uavg & 0x0000ff00) >> 8 ; 
           retbuf[9] = (uavg & 0x000000ff) ; 
-          ws_server_send_bin_client(0,(char*)retbuf, 10); 
+          //ws_server_send_bin_client(0,(char*)retbuf, 10); 
                    
           // ESP_LOGI(TAG, "BaseTX  :% 11d.%03d ", base_message.sent.sec ,
           // base_message.sent.usec/1000); ESP_LOGI(TAG, "BaseRX  :% 11d.%03d ",
@@ -498,7 +498,7 @@ static void http_get_task(void *pvParameters) {
                       base_message.received.usec / 1000 -
                       base_message.sent.usec / 1000;
           time_diff = (time_diff > 1000) ? time_diff - 1000 : time_diff;
-          ESP_LOGI(TAG, "TM loopback latency: %03.1f ms", time_diff);
+          //ESP_LOGI(TAG, "TM loopback latency: %03.1f ms", time_diff);
           break;
       }
       // If it's been a second or longer since our last time message was
@@ -549,6 +549,7 @@ static void http_get_task(void *pvParameters) {
 static uint32_t avg[32];  
 static int avgptr = 0; 
 static int avgsync = 0; 
+
 void timeravg(struct timeval *tavg,struct timeval *tdif) 
 {  ESP_LOGI("TAVG","Time input : % 11lld.%06d",(int64_t) (tdif)->tv_sec,(int32_t) (tdif)->tv_usec );
    if (avgptr < 31 ) { 
