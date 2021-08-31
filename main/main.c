@@ -235,7 +235,7 @@ static void http_get_task(void *pvParameters) {
 
       struct timeval to;
       to.tv_sec = 0;
-      to.tv_usec = 300000;
+      to.tv_usec = 500000;
       // Block until input arrives on one or more active sockets.
       retval = select(FD_SETSIZE, &read_push_set, NULL, NULL, &to);
       if (retval) {
@@ -588,7 +588,7 @@ void app_main(void) {
   //i2s_mclk_gpio_select(0, 0);
   //setup_ma120(); 
 
-  dsp_setup_flow(500, 44100);
+  dsp_setup_flow(500, 48000);
 
   // Enable and setup WIFI in station mode  and connect to Access point setup in
   // menu config

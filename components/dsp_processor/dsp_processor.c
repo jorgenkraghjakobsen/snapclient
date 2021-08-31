@@ -545,8 +545,7 @@ void dsp_i2s_task_init(uint32_t sample_rate, bool slave) {
   printf("Ringbuffer ok\n");
   xTaskCreatePinnedToCore(dsp_i2s_task_handler, "DSP_I2S", 48 * 1024, NULL, 5,
                           &s_dsp_i2s_task_handle, 0);
-  // xTaskCreate(dsp_i2s_task_handler, "DSP_I2S", 48*1024, NULL, 7,
-  // &s_dsp_i2s_task_handle);
+  
 }
 
 void dsp_i2s_task_deinit(void) {
