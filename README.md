@@ -111,7 +111,7 @@ Setup a snapcast server on your network
 
 On a linux box:
 
-Clone snapcast build and start the server
+Clone [snapcast](https://github.com/badaix/snapcast), build and start the server
 
     ./snapserver
 
