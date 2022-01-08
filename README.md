@@ -100,6 +100,8 @@ Configure to match your setup
   - Wifi network name and password
   - Audio coded setup
 
+using  
+
     idf.py menuconfig
 
 Build, compile and flash:
