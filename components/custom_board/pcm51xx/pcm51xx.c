@@ -110,8 +110,9 @@ vTaskDelay(20 / portTICK_RATE_MS);
 gpio_set_level(PCM51XX_RST_GPIO, 1);
 vTaskDelay(200 / portTICK_RATE_MS);
   */
-
   ret = get_i2c_pins(I2C_NUM_0, &i2c_cfg);
+  i2c_handler = NULL;
+#if 0 /* at least the PCM5102 has no i2c */
   i2c_handler = i2c_bus_create(I2C_NUM_0, &i2c_cfg);
   if (i2c_handler == NULL) {
     ESP_LOGW(TAG, "failed to create i2c bus handler\n");
@@ -132,6 +133,7 @@ vTaskDelay(200 / portTICK_RATE_MS);
   PCM51XX_ASSERT(ret, "Fail to detect pcm51xx PA", ESP_FAIL);
   ret |= pcm51xx_transmit_registers(
       pcm51xx_init_seq, sizeof(pcm51xx_init_seq) / sizeof(pcm51xx_init_seq[0]));
+#endif
 
   PCM51XX_ASSERT(ret, "Fail to iniitialize pcm51xx PA", ESP_FAIL);
   return ret;
@@ -153,6 +155,9 @@ esp_err_t pcm51xx_set_volume(int vol) {
   uint8_t cmd[2] = {0, 0};
   esp_err_t ret = ESP_OK;
 
+#if 1
+  ESP_LOGW(TAG, "Volume setting not supported (set to 0x%x)", vol);
+#else
   cmd[1] = vol;
 
   cmd[0] = PCM51XX_REG_VOL_L;
@@ -160,11 +165,17 @@ esp_err_t pcm51xx_set_volume(int vol) {
   cmd[0] = PCM51XX_REG_VOL_R;
   ret |= i2c_bus_write_bytes(i2c_handler, pcm51xx_addr, &cmd[0], 1, &cmd[1], 1);
   ESP_LOGW(TAG, "Volume set to 0x%x", cmd[1]);
+#endif
   return ret;
 }
 
 esp_err_t pcm51xx_get_volume(int *value) {
   /// FIXME: Got the digit volume is not right.
+#if 1
+  ESP_LOGW(TAG, "Volume getting not supported (set to 0x%x)", PCM51XX_VOLUME_MAX);
+  *value = PCM51XX_VOLUME_MAX;
+  return ESP_OK;
+#else
   uint8_t cmd[2] = {PCM51XX_REG_VOL_L, 0x00};
   esp_err_t ret =
       i2c_bus_read_bytes(i2c_handler, pcm51xx_addr, &cmd[0], 1, &cmd[1], 1);
@@ -172,10 +183,14 @@ esp_err_t pcm51xx_get_volume(int *value) {
   ESP_LOGI(TAG, "Volume is %d", cmd[1]);
   *value = cmd[1];
   return ret;
+#endif
 }
 
 esp_err_t pcm51xx_set_mute(bool enable) {
   esp_err_t ret = ESP_OK;
+#if 1
+  gpio_set_level(get_pa_enable_gpio(), enable);
+#else
   uint8_t cmd[2] = {PCM51XX_REG_MUTE, 0x00};
   ret |= i2c_bus_read_bytes(i2c_handler, pcm51xx_addr, &cmd[0], 1, &cmd[1], 1);
 
@@ -187,17 +202,24 @@ esp_err_t pcm51xx_set_mute(bool enable) {
   ret |= i2c_bus_write_bytes(i2c_handler, pcm51xx_addr, &cmd[0], 1, &cmd[1], 1);
 
   PCM51XX_ASSERT(ret, "Fail to set mute", ESP_FAIL);
+#endif
   return ret;
 }
 
 esp_err_t pcm51xx_get_mute(bool *enabled) {
   esp_err_t ret = ESP_OK;
+#if 1
+  int tmp;
+  tmp = gpio_get_level(get_pa_enable_gpio());
+  *enabled = (tmp != 0);
+#else
   uint8_t cmd[2] = {PCM51XX_REG_MUTE, 0x00};
   ret |= i2c_bus_read_bytes(i2c_handler, pcm51xx_addr, &cmd[0], 1, &cmd[1], 1);
 
   PCM51XX_ASSERT(ret, "Fail to get mute", ESP_FAIL);
   *enabled = (bool)(cmd[1] & 0x11);
   ESP_LOGI(TAG, "Get mute value: %s", *enabled ? "muted" : "unmuted");
+#endif
   return ret;
 }
 

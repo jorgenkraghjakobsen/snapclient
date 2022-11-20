@@ -34,7 +34,12 @@ extern xQueueHandle flow_queue;
 
 extern struct timeval tdif;
 
-extern uint32_t buffer_ms;
+#if !defined( CONFIG_USE_PSRAM )
+    extern const uint32_t buffer_ms;
+#else
+    extern uint32_t buffer_ms;
+#endif
+
 extern uint8_t muteCH[4];
 
 uint8_t dspFlow =
@@ -48,7 +53,7 @@ void setup_dsp_i2s(uint32_t sample_rate, bool slave_i2s) {
       .sample_rate = sample_rate,
       .bits_per_sample = bits_per_sample,
       .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,  // 2-channels
-      .communication_format = I2S_COMM_FORMAT_I2S,
+      .communication_format = I2S_COMM_FORMAT_STAND_I2S,
       .dma_buf_count = 8,
       .dma_buf_len = 480,
       .intr_alloc_flags = 1,  // Default interrupt priority
@@ -75,7 +80,7 @@ void setup_dsp_i2s(uint32_t sample_rate, bool slave_i2s) {
         .sample_rate = sample_rate,
         .bits_per_sample = bits_per_sample,
         .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,  // 2-channels
-        .communication_format = I2S_COMM_FORMAT_I2S,
+        .communication_format = I2S_COMM_FORMAT_STAND_I2S,
         .dma_buf_count = 8,
         .dma_buf_len = 480,
         .use_apll = true,
@@ -90,12 +95,35 @@ void setup_dsp_i2s(uint32_t sample_rate, bool slave_i2s) {
   }
 }
 
+struct __attribute__((packed)) i2s_buffer_frame_header {
+    uint32_t sec;
+    uint32_t usec;
+    uint32_t size;
+};
+
+struct __attribute__((packed))  i2s_buffer_frame {
+    struct i2s_buffer_frame_header header;
+    uint8_t payload[];
+};
+
+static inline struct i2s_buffer_frame* fetch_next_frame(size_t *fetched_size) {
+    struct i2s_buffer_frame* ret;
+    size_t bytes;
+    ret = xRingbufferReceive(s_ringbuf_i2s, &bytes, pdMS_TO_TICKS(10000));
+    assert(bytes == sizeof(ret->header) + ret->header.size);
+    if (fetched_size) {
+        *fetched_size = bytes;
+    }
+    return ret;
+}
+
 static void dsp_i2s_task_handler(void *arg) {
   struct timeval now, tv1;
   uint32_t cnt = 0;
   uint8_t *audio = NULL;
   uint8_t *drainPtr = NULL;
   uint8_t *timestampSize = NULL;
+  uint8_t *buf_data = NULL;
   float sbuffer0[1024];
   float sbuffer1[1024];
   float sbuffer2[1024];
@@ -180,14 +208,16 @@ static void dsp_i2s_task_handler(void *arg) {
       }
     }
 
-    timestampSize = (uint8_t *)xRingbufferReceiveUpTo(
-        s_ringbuf_i2s, &n_byte_read, (portTickType)40, 3 * 4);
-    if (timestampSize == NULL) {
+    buf_data = xRingbufferReceive(s_ringbuf_i2s, &n_byte_read, pdMS_TO_TICKS(10000));
+//    timestampSize = (uint8_t *)xRingbufferReceiveUpTo(
+//        s_ringbuf_i2s, &n_byte_read, pdMS_TO_TICKS(1000), 3 * 4);
+    if (buf_data == NULL) {
       ESP_LOGI("I2S", "Wait: no data in buffer %d %d", cnt, n_byte_read);
       continue;
     }
 
-    if (n_byte_read != 12) {
+    timestampSize = buf_data;
+    if (n_byte_read < 12) {
       ESP_LOGE("I2S", "error read from ringbuf %d ", n_byte_read);
       // TODO find a decent stategy to fall back on our feet...
     }
@@ -204,7 +234,7 @@ static void dsp_i2s_task_handler(void *arg) {
                        (*(timestampSize + 10) << 16) +
                        (*(timestampSize + 11) << 24);
     // free the item (timestampSize) space in the ringbuffer
-    vRingbufferReturnItem(s_ringbuf_i2s, (void *)timestampSize);
+    vRingbufferReturnItem(s_ringbuf_i2s, (void *)buf_data);
 
     // what's this for?
     //while (tdif.tv_sec == 0) {
@@ -256,15 +286,20 @@ static void dsp_i2s_task_handler(void *arg) {
       playback_synced = 1;
     }
 
-    audio = (uint8_t *)xRingbufferReceiveUpTo(s_ringbuf_i2s, &chunk_size,
-                                              (portTickType)20, ts_size);
+//    audio = (uint8_t *)xRingbufferReceiveUpTo(s_ringbuf_i2s, &chunk_size,
+//                                              (portTickType)20, ts_size);
+    buf_data = xRingbufferReceive(s_ringbuf_i2s, &chunk_size, pdMS_TO_TICKS(10000));
+    audio = buf_data;
+//    audio = &buf_data[3 * 4];
+//    chunk_size = n_byte_read - 12;
     if (chunk_size != ts_size) {
       uint32_t missing = ts_size - chunk_size; 
       ESP_LOGI("I2S", "Error readding audio from ring buf : read %d of %d , missing %d", chunk_size,ts_size, missing);
-      vRingbufferReturnItem(s_ringbuf_i2s, (void *)audio);
+      vRingbufferReturnItem(s_ringbuf_i2s, (void *)buf_data);
       uint8_t *ax = audio ; 
-      ax = (uint8_t *)xRingbufferReceiveUpTo(s_ringbuf_i2s, &chunk_size,
-                                              (portTickType)20, missing);
+      ax = xRingbufferReceive(s_ringbuf_i2s, &chunk_size, pdMS_TO_TICKS(10000));
+//      ax = (uint8_t *)xRingbufferReceiveUpTo(s_ringbuf_i2s, &chunk_size,
+//                                              pdMS_TO_TICKS(20), missing);
       ESP_LOGI("I2S", "Read the next %d ", chunk_size );
     }
     // printf("Read data   : %d \n",chunk_size );
@@ -500,7 +535,7 @@ static void dsp_i2s_task_handler(void *arg) {
       // printf("%d %d \n",byteWritten, i2s_evt.size );
       //}
 
-      vRingbufferReturnItem(s_ringbuf_i2s, (void *)audio);
+      vRingbufferReturnItem(s_ringbuf_i2s, (void *)buf_data);
     }
   }
 }
@@ -513,6 +548,15 @@ static void dsp_i2s_task_handler(void *arg) {
 //(3840 + 12)  PCM 48000/16/2 
 
 // 3852 3528
+
+#define FRAME_MS 120
+#define SAMPLE_RATE_kHz 48
+#define SAMPLE_BYTES 2
+#define CHANNELS 2
+#define BUFFER_FRAMES 3
+#define HEADER_OVERHEAD (BUFFER_FRAMES * 4 * sizeof(uint32_t))
+
+#define BUFFER_SIZE_X (BUFFER_FRAMES * FRAME_MS * SAMPLE_RATE_kHz * SAMPLE_BYTES * CHANNELS + HEADER_OVERHEAD)
 
 void dsp_i2s_task_init(uint32_t sample_rate, bool slave) {
   setup_dsp_i2s(sample_rate, slave);
@@ -533,17 +577,22 @@ void dsp_i2s_task_init(uint32_t sample_rate, bool slave) {
   //                                        buffer_storage, buffer_struct);
   printf("Ringbuf ok\n");
 #else
+//  static const size_t buf_size = 32 * 1024 + 72 * 1024;
+  static StaticRingbuffer_t buffer_struct;
+  static uint8_t buffer_storage[BUFFER_SIZE_X];
   printf(
-      "Setup ringbuffer using internal ram - only space for 150ms - Snapcast "
-      "buffer_ms parameter ignored \n");
-  s_ringbuf_i2s = xRingbufferCreate(32 * 1024, RINGBUF_TYPE_BYTEBUF);
+      "Setup ringbuffer using internal ram - only space for %dms - Snapcast "
+      "buffer_ms parameter ignored \n", FRAME_MS * BUFFER_FRAMES);
+  s_ringbuf_i2s = xRingbufferCreateStatic(sizeof(buffer_storage), RINGBUF_TYPE_NOSPLIT, // RINGBUF_TYPE_BYTEBUF,
+                                            buffer_storage, &buffer_struct);
+//  s_ringbuf_i2s = xRingbufferCreate(buf_size, RINGBUF_TYPE_BYTEBUF);
 #endif
   if (s_ringbuf_i2s == NULL) {
     printf("nospace for ringbuffer\n");
     return;
   }
   printf("Ringbuffer ok\n");
-  xTaskCreatePinnedToCore(dsp_i2s_task_handler, "DSP_I2S", 48 * 1024, NULL, 5,
+  xTaskCreatePinnedToCore(dsp_i2s_task_handler, "DSP_I2S", 38 * 1024, NULL, 5,
                           &s_dsp_i2s_task_handle, 0);
   
 }

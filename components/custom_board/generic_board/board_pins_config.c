@@ -55,22 +55,34 @@ esp_err_t get_i2s_pins(i2s_port_t port, i2s_pin_config_t *i2s_config) {
     i2s_config->ws_io_num = CONFIG_MASTER_I2S_LRCK_PIN;
     i2s_config->data_out_num = CONFIG_MASTER_I2S_DATAOUT_PIN;
     i2s_config->data_in_num = -1;
+    i2s_config->mck_io_num = -1;
   } else if (port == I2S_NUM_1) {
     i2s_config->bck_io_num = CONFIG_SLAVE_I2S_BCK_PIN;
     i2s_config->ws_io_num = CONFIG_SLAVE_I2S_LRCK_PIN;
     i2s_config->data_out_num = CONFIG_SLAVE_I2S_DATAOUT_PIN;
     i2s_config->data_in_num = -1;
+    i2s_config->mck_io_num = -1;
   } else {
     memset(i2s_config, -1, sizeof(i2s_pin_config_t));
     ESP_LOGE(TAG, "i2s port %d is not supported", port);
     return ESP_FAIL;
   }
 
+  ESP_LOGI(TAG, "i2s port %d pins:", port);
+  ESP_LOGI(TAG, "i2s_config->bck_io_num = %d", i2s_config->bck_io_num);
+  ESP_LOGI(TAG, "i2s_config->ws_io_num = %d", i2s_config->ws_io_num);
+  ESP_LOGI(TAG, "i2s_config->data_out_num = %d", i2s_config->data_out_num);
+  ESP_LOGI(TAG, "i2s_config->data_in_num = %d", i2s_config->data_in_num);
+  ESP_LOGI(TAG, "i2s_config->mck_io = %d", i2s_config->mck_io_num);
+
   return ESP_OK;
 }
 
 esp_err_t i2s_mclk_gpio_select(i2s_port_t i2s_num, gpio_num_t gpio_num) {
-  if (i2s_num >= I2S_NUM_MAX) {
+#if 1
+    ESP_LOGI(TAG, "I2S%d, MCLK output by GPIO%d is ignored", i2s_num, gpio_num);
+#else
+    if (i2s_num >= I2S_NUM_MAX) {
     ESP_LOGE(TAG, "Does not support i2s number(%d)", i2s_num);
     return ESP_ERR_INVALID_ARG;
   }
@@ -92,6 +104,7 @@ esp_err_t i2s_mclk_gpio_select(i2s_port_t i2s_num, gpio_num_t gpio_num) {
       WRITE_PERI_REG(PIN_CTRL, 0xFF00);
     }
   }
+#endif
   return ESP_OK;
 }
 
