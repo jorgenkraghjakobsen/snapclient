@@ -131,6 +131,8 @@ static void dsp_i2s_task_handler(void *arg) {
   uint8_t *drainPtr = NULL;
   uint8_t *timestampSize = NULL;
   uint8_t *buf_data = NULL;
+
+#ifdef ENABLE_DSP_EFFECTS
   float sbuffer0[1024];
   float sbuffer1[1024];
   float sbuffer2[1024];
@@ -141,6 +143,7 @@ static void dsp_i2s_task_handler(void *arg) {
 
   uint8_t dsp_audio[4 * 1024];
   uint8_t dsp_audio1[4 * 1024];
+#endif /* ENABLE_DSP_EFFECTS */
   size_t n_byte_read = 0;
   size_t chunk_size = 0;
   size_t bytes_written = 0;
@@ -370,7 +373,7 @@ static void dsp_i2s_task_handler(void *arg) {
         ESP_LOGI(TAG, "Chunk :%d %d ms", chunk_size, age);
         // xRingbufferPrintInfo(s_ringbuf_i2s);
       }
-
+#ifdef ENABLE_DSP_EFFECTS
       for (uint16_t i = 0; i < len; i++) {
         sbuffer0[i] =
             dynamic_vol * 0.5 *
@@ -382,6 +385,7 @@ static void dsp_i2s_task_handler(void *arg) {
             32768;
         sbuffer2[i] = ((sbuffer0[i] / 2) + (sbuffer1[i] / 2));
       }
+#endif /* ENABLE_DSP_EFFECTS */
       switch (dspFlow) {
         case dspfStereo: {  // if (cnt%120==0)
           //{ ESP_LOGI(TAG, "In dspf Stero :%d",chunk_size);
@@ -402,6 +406,7 @@ static void dsp_i2s_task_handler(void *arg) {
                              &bytes_written, portMAX_DELAY);
           }
         } break;
+#ifdef ENABLE_DSP_EFFECTS
         case dspfBassBoost: {  // CH0 low shelf 6dB @ 400Hz
           BIQUAD(sbuffer0, sbufout0, len, bq[6].coeffs, bq[6].w);
           BIQUAD(sbuffer1, sbufout1, len, bq[7].coeffs, bq[7].w);
@@ -533,6 +538,7 @@ static void dsp_i2s_task_handler(void *arg) {
           i2s_write_expand(1, (char *)dsp_audio1, chunk_size, 16, 32,
                            &bytes_written, portMAX_DELAY);
         } break;
+#endif /* ENABLE_DSP_EFFECTS */
         default:
           break;
       }
