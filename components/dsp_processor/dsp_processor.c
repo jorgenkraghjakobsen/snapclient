@@ -124,10 +124,18 @@ static inline struct i2s_buffer_frame* fetch_next_frame(size_t *fetched_size) {
     return ret;
 }
 
+#ifdef CONFIG_USE_DSP_SOFT_VOLUME
+static volatile int32_t volume_scale;
+
+void dsp_i2s_set_volume(double v) {
+    volume_scale = v * (double)(1ul << 16);
+}
+#endif /* CONFIG_USE_DSP_SOFT_VOLUME */
+
 static void dsp_i2s_task_handler(void *arg) {
   struct timeval now, tv1;
   uint32_t cnt = 0;
-  uint8_t *audio = NULL;
+  int16_t *audio = NULL;
   uint8_t *drainPtr = NULL;
   uint8_t *timestampSize = NULL;
   uint8_t *buf_data = NULL;
@@ -299,14 +307,14 @@ static void dsp_i2s_task_handler(void *arg) {
 //    audio = (uint8_t *)xRingbufferReceiveUpTo(s_ringbuf_i2s, &chunk_size,
 //                                              (portTickType)20, ts_size);
     buf_data = xRingbufferReceive(s_ringbuf_i2s, &chunk_size, pdMS_TO_TICKS(10000));
-    audio = buf_data;
+    audio = (int16_t*)buf_data;
 //    audio = &buf_data[3 * 4];
 //    chunk_size = n_byte_read - 12;
     if (chunk_size != ts_size) {
       uint32_t missing = ts_size - chunk_size; 
       ESP_LOGI(TAG, "Error readding audio from ring buf : read %d of %d , missing %d", chunk_size,ts_size, missing);
       vRingbufferReturnItem(s_ringbuf_i2s, (void *)buf_data);
-      uint8_t *ax = audio ; 
+      uint8_t *ax;
       ax = xRingbufferReceive(s_ringbuf_i2s, &chunk_size, pdMS_TO_TICKS(10000));
 //      ax = (uint8_t *)xRingbufferReceiveUpTo(s_ringbuf_i2s, &chunk_size,
 //                                              pdMS_TO_TICKS(20), missing);
@@ -392,12 +400,20 @@ static void dsp_i2s_task_handler(void *arg) {
           // ws_server_send_bin_client(0,(char*)audio, 240);
           // printf("%d %d \n",byteWritten, i2s_evt.size );
           //}
+#ifdef CONFIG_USE_DSP_SOFT_VOLUME
+          int32_t volume_scale_local = volume_scale;
+          for (uint16_t i = 0; i < len; i++) {
+            audio[i * 2 + 0] = (volume_scale_local * audio[i * 2 + 0]) >> 16;
+            audio[i * 2 + 1] = (volume_scale_local * audio[i * 2 + 1]) >> 16;
+          }
+#else /* CONFIG_USE_DSP_SOFT_VOLUME */
           for (uint16_t i = 0; i < len; i++) {
             audio[i * 4 + 0] = (muteCH[0] == 1) ? 0 : audio[i * 4 + 0];
             audio[i * 4 + 1] = (muteCH[0] == 1) ? 0 : audio[i * 4 + 1];
             audio[i * 4 + 2] = (muteCH[1] == 1) ? 0 : audio[i * 4 + 2];
             audio[i * 4 + 3] = (muteCH[1] == 1) ? 0 : audio[i * 4 + 3];
           }
+#endif /* CONFIG_USE_DSP_SOFT_VOLUME */
           if (bits_per_sample == 16) {
             i2s_write(0, (char *)audio, chunk_size, &bytes_written,
                       portMAX_DELAY);
@@ -605,6 +621,9 @@ void dsp_i2s_task_init(uint32_t sample_rate, bool slave) {
     return;
   }
   printf("Ringbuffer ok\n");
+#ifdef CONFIG_USE_DSP_SOFT_VOLUME
+  dsp_i2s_set_volume(1.0);
+#endif /* CONFIG_USE_DSP_SOFT_VOLUME */
   xTaskCreatePinnedToCore(dsp_i2s_task_handler, "DSP_I2S", 38 * 1024, NULL, 5,
                           &s_dsp_i2s_task_handle, 0);
   

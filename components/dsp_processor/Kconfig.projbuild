@@ -13,6 +13,12 @@ menu "ESP32 audio buffer and I2S pin config"
         help
            Select number of bits per sample for codec configed and connected to esp32 i2s dma hw
 
+    config USE_DSP_SOFT_VOLUME
+        bool "Enable software volume control"
+        default true
+        help
+            Required for to change the volume if the I2S module has no volume control.
+
     config ENABLE_DSP_EFFECTS
         bool "Enable special DSP effects"
         default true

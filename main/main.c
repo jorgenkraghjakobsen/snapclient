@@ -580,8 +580,16 @@ static void http_get_task(void *pvParameters) {
             xQueueSend(flow_queue, &client_state_muted, 10);
           }
           // Volume setting using ADF HAL abstraction
+#ifdef CONFIG_USE_DSP_SOFT_VOLUME
+          if (server_settings_message.muted) {
+              dsp_i2s_set_volume(0);
+          } else {
+              dsp_i2s_set_volume(server_settings_message.volume / 100.0);
+          }
+#else /* CONFIG_USE_DSP_SOFT_VOLUME */
           audio_hal_set_volume(board_handle->audio_hal,
                                server_settings_message.volume);
+#endif /* CONFIG_USE_DSP_SOFT_VOLUME */
           break;
 
         case SNAPCAST_MESSAGE_TIME:
