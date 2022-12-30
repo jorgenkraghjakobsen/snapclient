@@ -32,12 +32,12 @@
 #define BUTTON_MUTE_ID 2
 #define BUTTON_SET_ID 3
 
-#define PA_ENABLE_GPIO GPIO_NUM_2
-#define ADC_DETECT_GPIO GPIO_NUM_36
-#define BATTERY_DETECT_GPIO GPIO_NUM_37
+#define PA_ENABLE_GPIO -1
+#define ADC_DETECT_GPIO -1
+#define BATTERY_DETECT_GPIO -1
 
 #define SDCARD_OPEN_FILE_NUM_MAX 5
-#define SDCARD_INTR_GPIO GPIO_NUM_34
+#define SDCARD_INTR_GPIO -1
 
 #define AUDIO_CODEC_DEFAULT_CONFIG()               \
   {                                                \
