@@ -573,7 +573,7 @@ void dsp_i2s_task_init(uint32_t sample_rate, bool slave) {
   uint8_t *buffer_storage = (uint8_t *)heap_caps_malloc(
       sizeof(uint8_t) * BUFFER_SIZE, MALLOC_CAP_SPIRAM);
   printf("Buffer_stoarge ok\n");
-  s_ringbuf_i2s = xRingbufferCreateStatic(BUFFER_SIZE, RINGBUF_TYPE_BYTEBUF,
+  s_ringbuf_i2s = xRingbufferCreateStatic(BUFFER_SIZE, RINGBUF_TYPE_NOSPLIT, // RINGBUF_TYPE_BYTEBUF,
                                           buffer_storage, buffer_struct);
   //s_ringbuf_i2s = xRingbufferCreateStatic(BUFFER_SIZE, RINGBUF_TYPE_BYTEBUF,
   //                                        buffer_storage, buffer_struct);
