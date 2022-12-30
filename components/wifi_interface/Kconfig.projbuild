@@ -1,5 +1,11 @@
 menu "Wifi Configuration"
 
+    config WIFI_INTERFACE_ENABLE
+        bool "WiFi enable"
+        default true
+        help
+            enable WiFi interface
+
     config WIFI_SSID
         string "WiFi SSID"
         default "myssid"
