@@ -24,6 +24,8 @@
 #define BIQUAD dsps_biquad_f32
 #endif
 
+static const char TAG[] = "DSP_I2S";
+
 uint32_t bits_per_sample = CONFIG_BITS_PER_SAMPLE;
 
 static xTaskHandle s_dsp_i2s_task_handle = NULL;
@@ -71,9 +73,9 @@ void setup_dsp_i2s(uint32_t sample_rate, bool slave_i2s) {
   //gpio_set_drive_capability(CONFIG_MASTER_I2S_BCK_PIN, 0);
   //gpio_set_drive_capability(CONFIG_MASTER_I2S_LRCK_PIN, 0);
   //gpio_set_drive_capability(CONFIG_MASTER_I2S_DATAOUT_PIN, 0);
-  ESP_LOGI("I2S", "I2S interface master setup");
+  ESP_LOGI(TAG, "I2S interface master setup");
   if (slave_i2s) {
-    ESP_LOGI("I2S", "Config slave I2S channel");
+    ESP_LOGI(TAG, "Config slave I2S channel");
   
     i2s_config_t i2s_config1 = {
         .mode = I2S_MODE_SLAVE | I2S_MODE_TX,  // Only TX - Slave channel
@@ -180,7 +182,7 @@ static void dsp_i2s_task_handler(void *arg) {
     cnt++;
 
     if (xQueueReceive(flow_queue, &flow_que_msg, 0)) {
-      ESP_LOGI("I2S", "FLOW Queue message: %d ", flow_que_msg);
+      ESP_LOGI(TAG, "FLOW Queue message: %d ", flow_que_msg);
       if (flow_state != flow_que_msg) {
         switch (flow_que_msg) {
           case 2:  // front end timed out -- network congestion more then 200
@@ -212,13 +214,13 @@ static void dsp_i2s_task_handler(void *arg) {
 //    timestampSize = (uint8_t *)xRingbufferReceiveUpTo(
 //        s_ringbuf_i2s, &n_byte_read, pdMS_TO_TICKS(1000), 3 * 4);
     if (buf_data == NULL) {
-      ESP_LOGI("I2S", "Wait: no data in buffer %d %d", cnt, n_byte_read);
+      ESP_LOGI(TAG, "Wait: no data in buffer %d %d", cnt, n_byte_read);
       continue;
     }
 
     timestampSize = buf_data;
     if (n_byte_read < 12) {
-      ESP_LOGE("I2S", "error read from ringbuf %d ", n_byte_read);
+      ESP_LOGE(TAG, "error read from ringbuf %d ", n_byte_read);
       // TODO find a decent stategy to fall back on our feet...
     }
 
@@ -279,9 +281,9 @@ static void dsp_i2s_task_handler(void *arg) {
         }
         age = agesec * 1000 + ageusec / 1000;
 
-        ESP_LOGI("I2S", "%d %d syncing ... ", buffer_ms, age);
+        ESP_LOGI(TAG, "%d %d syncing ... ", buffer_ms, age);
       }
-      ESP_LOGI("I2S", "%d %d SYNCED ", buffer_ms, age);
+      ESP_LOGI(TAG, "%d %d SYNCED ", buffer_ms, age);
 
       playback_synced = 1;
     }
@@ -294,13 +296,13 @@ static void dsp_i2s_task_handler(void *arg) {
 //    chunk_size = n_byte_read - 12;
     if (chunk_size != ts_size) {
       uint32_t missing = ts_size - chunk_size; 
-      ESP_LOGI("I2S", "Error readding audio from ring buf : read %d of %d , missing %d", chunk_size,ts_size, missing);
+      ESP_LOGI(TAG, "Error readding audio from ring buf : read %d of %d , missing %d", chunk_size,ts_size, missing);
       vRingbufferReturnItem(s_ringbuf_i2s, (void *)buf_data);
       uint8_t *ax = audio ; 
       ax = xRingbufferReceive(s_ringbuf_i2s, &chunk_size, pdMS_TO_TICKS(10000));
 //      ax = (uint8_t *)xRingbufferReceiveUpTo(s_ringbuf_i2s, &chunk_size,
 //                                              pdMS_TO_TICKS(20), missing);
-      ESP_LOGI("I2S", "Read the next %d ", chunk_size );
+      ESP_LOGI(TAG, "Read the next %d ", chunk_size );
     }
     // printf("Read data   : %d \n",chunk_size );
 
@@ -345,7 +347,7 @@ static void dsp_i2s_task_handler(void *arg) {
         uint32_t drainSize;
         drainPtr = (uint8_t *)xRingbufferReceive(s_ringbuf_i2s, &drainSize,
                                                  (portTickType)0);
-        ESP_LOGI("I2S", "Drained Ringbuffer (bytes):%d ", drainSize);
+        ESP_LOGI(TAG, "Drained Ringbuffer (bytes):%d ", drainSize);
         if (drainPtr != NULL) {
           vRingbufferReturnItem(s_ringbuf_i2s, (void *)drainPtr);
         }
@@ -360,7 +362,7 @@ static void dsp_i2s_task_handler(void *arg) {
     {
       int16_t len = chunk_size / 4;
       if (cnt % 100 == 2) {
-        ESP_LOGI("I2S", "Chunk :%d %d ms", chunk_size, age);
+        ESP_LOGI(TAG, "Chunk :%d %d ms", chunk_size, age);
         // xRingbufferPrintInfo(s_ringbuf_i2s);
       }
 
@@ -377,7 +379,7 @@ static void dsp_i2s_task_handler(void *arg) {
       }
       switch (dspFlow) {
         case dspfStereo: {  // if (cnt%120==0)
-          //{ ESP_LOGI("I2S", "In dspf Stero :%d",chunk_size);
+          //{ ESP_LOGI(TAG, "In dspf Stero :%d",chunk_size);
           // ws_server_send_bin_client(0,(char*)audio, 240);
           // printf("%d %d \n",byteWritten, i2s_evt.size );
           //}
@@ -420,7 +422,7 @@ static void dsp_i2s_task_handler(void *arg) {
         } break;
         case dspfBiamp: {
           if (cnt % 120 == 0) {
-            ESP_LOGI("I2S", "In dspf biamp :%d", chunk_size);
+            ESP_LOGI(TAG, "In dspf biamp :%d", chunk_size);
             // ws_server_send_bin_client(0,(char*)audio, 240);
             // printf("%d %d \n",byteWritten, i2s_evt.size );
           }
@@ -560,7 +562,7 @@ static void dsp_i2s_task_handler(void *arg) {
 
 void dsp_i2s_task_init(uint32_t sample_rate, bool slave) {
   setup_dsp_i2s(sample_rate, slave);
-  ESP_LOGI("I2S","Setup i2s dma and interface");
+  ESP_LOGI(TAG,"Setup i2s dma and interface");
 #ifdef CONFIG_USE_PSRAM
   printf("Setup ringbuffer using PSRAM \n");
   StaticRingbuffer_t *buffer_struct = (StaticRingbuffer_t *)heap_caps_malloc(
