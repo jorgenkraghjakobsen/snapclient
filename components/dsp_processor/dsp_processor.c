@@ -59,7 +59,12 @@ void setup_dsp_i2s(uint32_t sample_rate, bool slave_i2s) {
       .dma_buf_count = 8,
       .dma_buf_len = 480,
       .intr_alloc_flags = 1,  // Default interrupt priority
+#ifdef CONFIG_ETHERNET_INTERFACE_ENABLE
+      /* using apll for i2s interferes with the clocks for the ethernet phy */
+      .use_apll = false,
+#else
       .use_apll = true,
+#endif /* CONFIG_ETHERNET_INTERFACE_ENABLE */
       .fixed_mclk = 0,
       .tx_desc_auto_clear = true  // Auto clear tx descriptor on underflow
   };

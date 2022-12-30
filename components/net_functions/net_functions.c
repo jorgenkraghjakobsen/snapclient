@@ -22,7 +22,7 @@
 
 static const char *TAG = "NETF";
 
-extern EventGroupHandle_t s_wifi_event_group;
+extern EventGroupHandle_t s_network_event_group;
 
 static const char *if_str[] = {"STA", "AP", "ETH", "MAX"};
 static const char *ip_protocol_str[] = {"V4", "V6", "MAX"};
@@ -122,7 +122,7 @@ void sntp_cb(struct timeval *tv) {
 }
 
 void set_time_from_sntp() {
-  xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT, false, true,
+  xEventGroupWaitBits(s_network_event_group, NETWORK_CONNECTED_BIT, false, true,
                       portMAX_DELAY);
   // ESP_LOGI(TAG, "clock %");
   ESP_LOGI(TAG, "Initializing SNTP");

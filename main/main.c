@@ -17,7 +17,14 @@
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
 #include "nvs_flash.h"
+
+#ifdef CONFIG_WIFI_INTERFACE_ENABLE
 #include "wifi_interface.h"
+#endif // CONFIG_WIFI_ENABLE
+
+#ifdef CONFIG_ETHERNET_INTERFACE_ENABLE
+#include "ethernet_interface.h"
+#endif // CONFIG_ETHERNET_INTERFACE_ENABLE
 
 // Minimum ESP-IDF stuff only hardware abstraction stuff
 #include "board.h"
@@ -82,7 +89,7 @@ static const char *TAG = "SNAPCAST";
 static char buff[SNAPCAST_BUFF_LEN];
 
 extern char mac_address[18];
-extern EventGroupHandle_t s_wifi_event_group;
+extern EventGroupHandle_t s_network_event_group;
 
 enum codec_type { PCM, FLAC, OGG, OPUS };
 
@@ -209,6 +216,7 @@ static void http_get_task(void *pvParameters) {
   uint8_t timestampSize[12];
   int chunk_res;
   uint32_t cnt = 0;
+
   ESP_LOGI("I2S", "Call dsp setup" );
   dsp_i2s_task_init(48000, false);
 
@@ -217,7 +225,7 @@ static void http_get_task(void *pvParameters) {
        event group.
     */
 
-    xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT, false, true,
+    xEventGroupWaitBits(s_network_event_group, NETWORK_CONNECTED_BIT, false, true,
                         portMAX_DELAY);
 
     // configure a failsafe snapserver according to CONFIG values
@@ -711,22 +719,31 @@ void app_main(void) {
 
   dsp_setup_flow(500, 48000);
 
+#ifdef CONFIG_ETHERNET_INTERFACE_ENABLE
+  ESP_LOGI(TAG, "starting ethernet");
+  ethernet_interface_init();
+
+  ESP_LOGI(TAG, "eth up");
+#endif // CONFIG_ETHERNET_INTERFACE_ENABLE
+
+#ifdef CONFIG_WIFI_INTERFACE_ENABLE
   // Enable and setup WIFI in station mode  and connect to Access point setup in
   // menu config
   wifi_init_sta();
  
-  // Enable websocket server  
   ESP_LOGI(TAG, "Connected to AP");
+#endif // CONFIG_WIFI_INTERFACE_ENABLE
 
-//  ESP_LOGI(TAG, "Setup ws server");
-//  websocket_if_start();
+// Enable websocket server
+  ESP_LOGI(TAG, "Setup ws server");
+  websocket_if_start();
  
   net_mdns_register("snapclient");
 #ifdef CONFIG_SNAPCLIENT_SNTP_ENABLE
   set_time_from_sntp();
 #endif
   flow_queue = xQueueCreate(10, sizeof(uint32_t));
-//  xTaskCreate(&ota_server_task, "ota_server_task", 4096, NULL, 15, NULL);
+  xTaskCreate(&ota_server_task, "ota_server_task", 4096, NULL, 15, NULL);
 
 #if USE_WIRE_QUEUE
   wire_chunk_buffer = xRingbufferCreate(2048 * 3, RINGBUF_TYPE_NOSPLIT);

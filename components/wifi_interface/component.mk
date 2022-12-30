@@ -1,1 +1,4 @@
+
+ifdef WIFI_INTERFACE
 COMPONENT_SRCDIRS := .
+endif
