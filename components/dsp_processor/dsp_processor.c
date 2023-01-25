@@ -590,6 +590,12 @@ static void dsp_i2s_task_handler(void *arg) {
 void dsp_i2s_task_init(uint32_t sample_rate, bool slave) {
   setup_dsp_i2s(sample_rate, slave);
   ESP_LOGI(TAG,"Setup i2s dma and interface");
+  const uint32_t stack_size =
+          2 * 1024
+#ifdef CONFIG_ENABLE_DSP_EFFECTS
+          + 36 * 1024
+#endif
+          ;
 #ifdef CONFIG_USE_PSRAM
   printf("Setup ringbuffer using PSRAM \n");
   StaticRingbuffer_t *buffer_struct = (StaticRingbuffer_t *)heap_caps_malloc(
@@ -624,7 +630,7 @@ void dsp_i2s_task_init(uint32_t sample_rate, bool slave) {
 #ifdef CONFIG_USE_DSP_SOFT_VOLUME
   dsp_i2s_set_volume(1.0);
 #endif /* CONFIG_USE_DSP_SOFT_VOLUME */
-  xTaskCreatePinnedToCore(dsp_i2s_task_handler, "DSP_I2S", 38 * 1024, NULL, 5,
+  xTaskCreatePinnedToCore(dsp_i2s_task_handler, "DSP_I2S", stack_size, NULL, 5,
                           &s_dsp_i2s_task_handle, 0);
   
 }
