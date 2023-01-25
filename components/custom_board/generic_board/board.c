@@ -55,7 +55,9 @@ audio_board_handle_t audio_board_init(void) {
       (audio_board_handle_t)audio_calloc(1, sizeof(struct audio_board_handle));
   AUDIO_MEM_CHECK(TAG, board_handle, return NULL);
   board_handle->audio_hal = audio_board_codec_init();
-  gpio_set_level(get_pa_enable_gpio(), 1);
+  if (get_pa_enable_gpio() != GPIO_NUM_NC) {
+    gpio_set_level(get_pa_enable_gpio(), 1);
+  }
   ESP_LOGI(TAG,"board-handle done") ;
   return board_handle;
 }
