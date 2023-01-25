@@ -298,9 +298,10 @@ void ethernet_interface_init(void)
         ESP_ERROR_CHECK(esp_eth_start(eth_handle_spi[i]));
     }
 #endif // CONFIG_ETH_IF_USE_SPI_ETHERNET
-    /* Waiting until either the connection is established (WIFI_CONNECTED_BIT) or
-     * connection failed for the maximum number of re-tries (WIFI_FAIL_BIT). The
-     * bits are set by event_handler() (see above) */
+
+    /* Waiting until either the connection is established (NETWORK_CONNECTED_BIT)
+     * or connection failed for the maximum number of re-tries (NETWORK_FAIL_BIT).
+     * The bits are set by event_handler() (see above) */
     EventBits_t bits = xEventGroupWaitBits(s_network_event_group,
                                            NETWORK_CONNECTED_BIT | NETWORK_FAIL_BIT,
                                            pdFALSE, pdFALSE, portMAX_DELAY);
