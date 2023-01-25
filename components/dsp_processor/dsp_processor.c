@@ -647,8 +647,11 @@ void dsp_i2s_task_deinit(void) {
 }
 
 size_t write_ringbuf(const uint8_t *data, size_t size) {
-  BaseType_t done = xRingbufferSend(s_ringbuf_i2s, (void *)data, size,
+  BaseType_t done = 0;
+  if (s_ringbuf_i2s) {
+    done = xRingbufferSend(s_ringbuf_i2s, (void *)data, size,
                                     (portTickType)portMAX_DELAY);
+  }
   return (done) ? size : 0;
 }
 
