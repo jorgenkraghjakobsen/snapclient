@@ -316,6 +316,15 @@ void ethernet_interface_init(void)
       ESP_LOGE(TAG, "UNEXPECTED EVENT");
     }
 
+    {
+      uint8_t base_mac[6];
+      extern char mac_address[18];
+
+      // Get MAC address for WiFi station
+      esp_read_mac(base_mac, ESP_MAC_ETH);
+      sprintf(mac_address, "%02X:%02X:%02X:%02X:%02X:%02X", base_mac[0],
+              base_mac[1], base_mac[2], base_mac[3], base_mac[4], base_mac[5]);
+    }
 }
 
 #else /* CONFIG_ETHERNET_INTERFACE_ENABLE */
