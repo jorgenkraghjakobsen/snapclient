@@ -6,7 +6,6 @@
    software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
    CONDITIONS OF ANY KIND, either express or implied.
 */
-#ifdef CONFIG_ETHERNET_INTERFACE_ENABLE
 
 #include <stdio.h>
 #include <string.h>
@@ -22,6 +21,8 @@
 #if CONFIG_ETH_USE_SPI_ETHERNET
 #include "driver/spi_master.h"
 #endif // CONFIG_ETH_USE_SPI_ETHERNET
+
+#ifdef  CONFIG_ETHERNET_INTERFACE_ENABLE
 
 static const char *TAG = "eth_interface";
 
@@ -316,9 +317,9 @@ void ethernet_interface_init(void)
 
 }
 
-#else /* ETHERNET_INTERFACE_ENABLE */
+#else /* CONFIG_ETHERNET_INTERFACE_ENABLE */
 
 typedef int dummy;
 
-#endif /* ETHERNET_INTERFACE_ENABLE */
+#endif /* CONFIG_ETHERNET_INTERFACE_ENABLE */
 
