@@ -55,6 +55,9 @@ audio_board_handle_t audio_board_init(void) {
       (audio_board_handle_t)audio_calloc(1, sizeof(struct audio_board_handle));
   AUDIO_MEM_CHECK(TAG, board_handle, return NULL);
   board_handle->audio_hal = audio_board_codec_init();
+  if (get_pa_enable_gpio() != GPIO_NUM_NC) {
+    gpio_set_level(get_pa_enable_gpio(), 1);
+  }
   ESP_LOGI(TAG,"board-handle done") ;
   return board_handle;
 }
@@ -73,6 +76,7 @@ audio_hal_handle_t audio_board_codec_init(void) {
 
 esp_err_t audio_board_key_init(esp_periph_set_handle_t set) {
   esp_err_t ret = ESP_OK;
+#if 0
   periph_adc_button_cfg_t adc_btn_cfg = PERIPH_ADC_BUTTON_DEFAULT_CONFIG();
   adc_arr_t adc_btn_tag = ADC_DEFAULT_ARR();
   adc_btn_tag.adc_ch = ADC1_CHANNEL_0;  // GPIO36
@@ -84,11 +88,15 @@ esp_err_t audio_board_key_init(esp_periph_set_handle_t set) {
   esp_periph_handle_t adc_btn_handle = periph_adc_button_init(&adc_btn_cfg);
   AUDIO_NULL_CHECK(TAG, adc_btn_handle, return ESP_ERR_ADF_MEMORY_LACK);
   ret = esp_periph_start(set, adc_btn_handle);
+#endif
   return ret;
 }
 
 esp_err_t audio_board_sdcard_init(esp_periph_set_handle_t set,
                                   periph_sdcard_mode_t mode) {
+#if 1
+    return ESP_OK;
+#else
   periph_sdcard_cfg_t sdcard_cfg = {
       .root = "/sdcard",
       .card_detect_pin = get_sdcard_intr_gpio(),  // GPIO_NUM_34
@@ -99,6 +107,7 @@ esp_err_t audio_board_sdcard_init(esp_periph_set_handle_t set,
     vTaskDelay(500 / portTICK_PERIOD_MS);
   }
   return ret;
+#endif
 }
 
 audio_board_handle_t audio_board_get_handle(void) { return board_handle; }

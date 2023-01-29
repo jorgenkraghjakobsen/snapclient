@@ -48,4 +48,9 @@ typedef struct pnode {
 void dsp_setup_flow(double freq, uint32_t samplerate);
 void dsp_set_xoverfreq(uint8_t, uint8_t, uint32_t);
 
+
+#ifdef CONFIG_USE_DSP_SOFT_VOLUME
+void dsp_i2s_set_volume(double v);
+#endif /* CONFIG_USE_DSP_SOFT_VOLUME */
+
 #endif /* _DSP_PROCESSOR_H_  */

@@ -24,6 +24,8 @@
 #define BIQUAD dsps_biquad_f32
 #endif
 
+static const char TAG[] = "DSP_I2S";
+
 uint32_t bits_per_sample = CONFIG_BITS_PER_SAMPLE;
 
 static xTaskHandle s_dsp_i2s_task_handle = NULL;
@@ -34,7 +36,12 @@ extern xQueueHandle flow_queue;
 
 extern struct timeval tdif;
 
-extern uint32_t buffer_ms;
+#if !defined( CONFIG_USE_PSRAM )
+    extern const uint32_t buffer_ms;
+#else
+    extern uint32_t buffer_ms;
+#endif
+
 extern uint8_t muteCH[4];
 
 uint8_t dspFlow =
@@ -48,11 +55,16 @@ void setup_dsp_i2s(uint32_t sample_rate, bool slave_i2s) {
       .sample_rate = sample_rate,
       .bits_per_sample = bits_per_sample,
       .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,  // 2-channels
-      .communication_format = I2S_COMM_FORMAT_I2S,
+      .communication_format = I2S_COMM_FORMAT_STAND_I2S,
       .dma_buf_count = 8,
       .dma_buf_len = 480,
       .intr_alloc_flags = 1,  // Default interrupt priority
+#ifdef CONFIG_ETHERNET_INTERFACE_ENABLE
+      /* using apll for i2s interferes with the clocks for the ethernet phy */
+      .use_apll = false,
+#else
       .use_apll = true,
+#endif /* CONFIG_ETHERNET_INTERFACE_ENABLE */
       .fixed_mclk = 0,
       .tx_desc_auto_clear = true  // Auto clear tx descriptor on underflow
   };
@@ -66,16 +78,16 @@ void setup_dsp_i2s(uint32_t sample_rate, bool slave_i2s) {
   //gpio_set_drive_capability(CONFIG_MASTER_I2S_BCK_PIN, 0);
   //gpio_set_drive_capability(CONFIG_MASTER_I2S_LRCK_PIN, 0);
   //gpio_set_drive_capability(CONFIG_MASTER_I2S_DATAOUT_PIN, 0);
-  ESP_LOGI("I2S", "I2S interface master setup");
+  ESP_LOGI(TAG, "I2S interface master setup");
   if (slave_i2s) {
-    ESP_LOGI("I2S", "Config slave I2S channel");
+    ESP_LOGI(TAG, "Config slave I2S channel");
   
     i2s_config_t i2s_config1 = {
         .mode = I2S_MODE_SLAVE | I2S_MODE_TX,  // Only TX - Slave channel
         .sample_rate = sample_rate,
         .bits_per_sample = bits_per_sample,
         .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,  // 2-channels
-        .communication_format = I2S_COMM_FORMAT_I2S,
+        .communication_format = I2S_COMM_FORMAT_STAND_I2S,
         .dma_buf_count = 8,
         .dma_buf_len = 480,
         .use_apll = true,
@@ -90,12 +102,45 @@ void setup_dsp_i2s(uint32_t sample_rate, bool slave_i2s) {
   }
 }
 
+struct __attribute__((packed)) i2s_buffer_frame_header {
+    uint32_t sec;
+    uint32_t usec;
+    uint32_t size;
+};
+
+struct __attribute__((packed))  i2s_buffer_frame {
+    struct i2s_buffer_frame_header header;
+    uint8_t payload[];
+};
+
+static inline struct i2s_buffer_frame* fetch_next_frame(size_t *fetched_size) {
+    struct i2s_buffer_frame* ret;
+    size_t bytes;
+    ret = xRingbufferReceive(s_ringbuf_i2s, &bytes, pdMS_TO_TICKS(10000));
+    assert(bytes == sizeof(ret->header) + ret->header.size);
+    if (fetched_size) {
+        *fetched_size = bytes;
+    }
+    return ret;
+}
+
+#ifdef CONFIG_USE_DSP_SOFT_VOLUME
+static volatile int32_t volume_scale;
+
+void dsp_i2s_set_volume(double v) {
+    volume_scale = v * (double)(1ul << 16);
+}
+#endif /* CONFIG_USE_DSP_SOFT_VOLUME */
+
 static void dsp_i2s_task_handler(void *arg) {
   struct timeval now, tv1;
   uint32_t cnt = 0;
-  uint8_t *audio = NULL;
+  int16_t *audio = NULL;
   uint8_t *drainPtr = NULL;
   uint8_t *timestampSize = NULL;
+  uint8_t *buf_data = NULL;
+
+#ifdef CONFIG_ENABLE_DSP_EFFECTS
   float sbuffer0[1024];
   float sbuffer1[1024];
   float sbuffer2[1024];
@@ -106,6 +151,7 @@ static void dsp_i2s_task_handler(void *arg) {
 
   uint8_t dsp_audio[4 * 1024];
   uint8_t dsp_audio1[4 * 1024];
+#endif /* CONFIG_ENABLE_DSP_EFFECTS */
   size_t n_byte_read = 0;
   size_t chunk_size = 0;
   size_t bytes_written = 0;
@@ -152,7 +198,7 @@ static void dsp_i2s_task_handler(void *arg) {
     cnt++;
 
     if (xQueueReceive(flow_queue, &flow_que_msg, 0)) {
-      ESP_LOGI("I2S", "FLOW Queue message: %d ", flow_que_msg);
+      ESP_LOGI(TAG, "FLOW Queue message: %d ", flow_que_msg);
       if (flow_state != flow_que_msg) {
         switch (flow_que_msg) {
           case 2:  // front end timed out -- network congestion more then 200
@@ -180,15 +226,17 @@ static void dsp_i2s_task_handler(void *arg) {
       }
     }
 
-    timestampSize = (uint8_t *)xRingbufferReceiveUpTo(
-        s_ringbuf_i2s, &n_byte_read, (portTickType)40, 3 * 4);
-    if (timestampSize == NULL) {
-      ESP_LOGI("I2S", "Wait: no data in buffer %d %d", cnt, n_byte_read);
+    buf_data = xRingbufferReceive(s_ringbuf_i2s, &n_byte_read, pdMS_TO_TICKS(10000));
+//    timestampSize = (uint8_t *)xRingbufferReceiveUpTo(
+//        s_ringbuf_i2s, &n_byte_read, pdMS_TO_TICKS(1000), 3 * 4);
+    if (buf_data == NULL) {
+      ESP_LOGI(TAG, "Wait: no data in buffer %d %d", cnt, n_byte_read);
       continue;
     }
 
-    if (n_byte_read != 12) {
-      ESP_LOGE("I2S", "error read from ringbuf %d ", n_byte_read);
+    timestampSize = buf_data;
+    if (n_byte_read < 12) {
+      ESP_LOGE(TAG, "error read from ringbuf %d ", n_byte_read);
       // TODO find a decent stategy to fall back on our feet...
     }
 
@@ -204,7 +252,7 @@ static void dsp_i2s_task_handler(void *arg) {
                        (*(timestampSize + 10) << 16) +
                        (*(timestampSize + 11) << 24);
     // free the item (timestampSize) space in the ringbuffer
-    vRingbufferReturnItem(s_ringbuf_i2s, (void *)timestampSize);
+    vRingbufferReturnItem(s_ringbuf_i2s, (void *)buf_data);
 
     // what's this for?
     //while (tdif.tv_sec == 0) {
@@ -249,23 +297,28 @@ static void dsp_i2s_task_handler(void *arg) {
         }
         age = agesec * 1000 + ageusec / 1000;
 
-        ESP_LOGI("I2S", "%d %d syncing ... ", buffer_ms, age);
+        ESP_LOGI(TAG, "%d %d syncing ... ", buffer_ms, age);
       }
-      ESP_LOGI("I2S", "%d %d SYNCED ", buffer_ms, age);
+      ESP_LOGI(TAG, "%d %d SYNCED ", buffer_ms, age);
 
       playback_synced = 1;
     }
 
-    audio = (uint8_t *)xRingbufferReceiveUpTo(s_ringbuf_i2s, &chunk_size,
-                                              (portTickType)20, ts_size);
+//    audio = (uint8_t *)xRingbufferReceiveUpTo(s_ringbuf_i2s, &chunk_size,
+//                                              (portTickType)20, ts_size);
+    buf_data = xRingbufferReceive(s_ringbuf_i2s, &chunk_size, pdMS_TO_TICKS(10000));
+    audio = (int16_t*)buf_data;
+//    audio = &buf_data[3 * 4];
+//    chunk_size = n_byte_read - 12;
     if (chunk_size != ts_size) {
       uint32_t missing = ts_size - chunk_size; 
-      ESP_LOGI("I2S", "Error readding audio from ring buf : read %d of %d , missing %d", chunk_size,ts_size, missing);
-      vRingbufferReturnItem(s_ringbuf_i2s, (void *)audio);
-      uint8_t *ax = audio ; 
-      ax = (uint8_t *)xRingbufferReceiveUpTo(s_ringbuf_i2s, &chunk_size,
-                                              (portTickType)20, missing);
-      ESP_LOGI("I2S", "Read the next %d ", chunk_size );
+      ESP_LOGI(TAG, "Error readding audio from ring buf : read %d of %d , missing %d", chunk_size,ts_size, missing);
+      vRingbufferReturnItem(s_ringbuf_i2s, (void *)buf_data);
+      uint8_t *ax;
+      ax = xRingbufferReceive(s_ringbuf_i2s, &chunk_size, pdMS_TO_TICKS(10000));
+//      ax = (uint8_t *)xRingbufferReceiveUpTo(s_ringbuf_i2s, &chunk_size,
+//                                              pdMS_TO_TICKS(20), missing);
+      ESP_LOGI(TAG, "Read the next %d ", chunk_size );
     }
     // printf("Read data   : %d \n",chunk_size );
 
@@ -310,7 +363,7 @@ static void dsp_i2s_task_handler(void *arg) {
         uint32_t drainSize;
         drainPtr = (uint8_t *)xRingbufferReceive(s_ringbuf_i2s, &drainSize,
                                                  (portTickType)0);
-        ESP_LOGI("I2S", "Drained Ringbuffer (bytes):%d ", drainSize);
+        ESP_LOGI(TAG, "Drained Ringbuffer (bytes):%d ", drainSize);
         if (drainPtr != NULL) {
           vRingbufferReturnItem(s_ringbuf_i2s, (void *)drainPtr);
         }
@@ -325,10 +378,10 @@ static void dsp_i2s_task_handler(void *arg) {
     {
       int16_t len = chunk_size / 4;
       if (cnt % 100 == 2) {
-        ESP_LOGI("I2S", "Chunk :%d %d ms", chunk_size, age);
+        ESP_LOGI(TAG, "Chunk :%d %d ms", chunk_size, age);
         // xRingbufferPrintInfo(s_ringbuf_i2s);
       }
-
+#ifdef CONFIG_ENABLE_DSP_EFFECTS
       for (uint16_t i = 0; i < len; i++) {
         sbuffer0[i] =
             dynamic_vol * 0.5 *
@@ -340,18 +393,27 @@ static void dsp_i2s_task_handler(void *arg) {
             32768;
         sbuffer2[i] = ((sbuffer0[i] / 2) + (sbuffer1[i] / 2));
       }
+#endif /* CONFIG_ENABLE_DSP_EFFECTS */
       switch (dspFlow) {
         case dspfStereo: {  // if (cnt%120==0)
-          //{ ESP_LOGI("I2S", "In dspf Stero :%d",chunk_size);
+          //{ ESP_LOGI(TAG, "In dspf Stero :%d",chunk_size);
           // ws_server_send_bin_client(0,(char*)audio, 240);
           // printf("%d %d \n",byteWritten, i2s_evt.size );
           //}
+#ifdef CONFIG_USE_DSP_SOFT_VOLUME
+          int32_t volume_scale_local = volume_scale;
+          for (uint16_t i = 0; i < len; i++) {
+            audio[i * 2 + 0] = (volume_scale_local * audio[i * 2 + 0]) >> 16;
+            audio[i * 2 + 1] = (volume_scale_local * audio[i * 2 + 1]) >> 16;
+          }
+#else /* CONFIG_USE_DSP_SOFT_VOLUME */
           for (uint16_t i = 0; i < len; i++) {
             audio[i * 4 + 0] = (muteCH[0] == 1) ? 0 : audio[i * 4 + 0];
             audio[i * 4 + 1] = (muteCH[0] == 1) ? 0 : audio[i * 4 + 1];
             audio[i * 4 + 2] = (muteCH[1] == 1) ? 0 : audio[i * 4 + 2];
             audio[i * 4 + 3] = (muteCH[1] == 1) ? 0 : audio[i * 4 + 3];
           }
+#endif /* CONFIG_USE_DSP_SOFT_VOLUME */
           if (bits_per_sample == 16) {
             i2s_write(0, (char *)audio, chunk_size, &bytes_written,
                       portMAX_DELAY);
@@ -360,6 +422,7 @@ static void dsp_i2s_task_handler(void *arg) {
                              &bytes_written, portMAX_DELAY);
           }
         } break;
+#ifdef CONFIG_ENABLE_DSP_EFFECTS
         case dspfBassBoost: {  // CH0 low shelf 6dB @ 400Hz
           BIQUAD(sbuffer0, sbufout0, len, bq[6].coeffs, bq[6].w);
           BIQUAD(sbuffer1, sbufout1, len, bq[7].coeffs, bq[7].w);
@@ -385,7 +448,7 @@ static void dsp_i2s_task_handler(void *arg) {
         } break;
         case dspfBiamp: {
           if (cnt % 120 == 0) {
-            ESP_LOGI("I2S", "In dspf biamp :%d", chunk_size);
+            ESP_LOGI(TAG, "In dspf biamp :%d", chunk_size);
             // ws_server_send_bin_client(0,(char*)audio, 240);
             // printf("%d %d \n",byteWritten, i2s_evt.size );
           }
@@ -491,6 +554,7 @@ static void dsp_i2s_task_handler(void *arg) {
           i2s_write_expand(1, (char *)dsp_audio1, chunk_size, 16, 32,
                            &bytes_written, portMAX_DELAY);
         } break;
+#endif /* CONFIG_ENABLE_DSP_EFFECTS */
         default:
           break;
       }
@@ -500,7 +564,7 @@ static void dsp_i2s_task_handler(void *arg) {
       // printf("%d %d \n",byteWritten, i2s_evt.size );
       //}
 
-      vRingbufferReturnItem(s_ringbuf_i2s, (void *)audio);
+      vRingbufferReturnItem(s_ringbuf_i2s, (void *)buf_data);
     }
   }
 }
@@ -514,9 +578,24 @@ static void dsp_i2s_task_handler(void *arg) {
 
 // 3852 3528
 
+#define FRAME_MS 120
+#define SAMPLE_RATE_kHz 48
+#define SAMPLE_BYTES 2
+#define CHANNELS 2
+#define BUFFER_FRAMES 3
+#define HEADER_OVERHEAD (BUFFER_FRAMES * 4 * sizeof(uint32_t))
+
+#define BUFFER_SIZE_X (BUFFER_FRAMES * FRAME_MS * SAMPLE_RATE_kHz * SAMPLE_BYTES * CHANNELS + HEADER_OVERHEAD)
+
 void dsp_i2s_task_init(uint32_t sample_rate, bool slave) {
   setup_dsp_i2s(sample_rate, slave);
-  ESP_LOGI("I2S","Setup i2s dma and interface");
+  ESP_LOGI(TAG,"Setup i2s dma and interface");
+  const uint32_t stack_size =
+          2 * 1024
+#ifdef CONFIG_ENABLE_DSP_EFFECTS
+          + 36 * 1024
+#endif
+          ;
 #ifdef CONFIG_USE_PSRAM
   printf("Setup ringbuffer using PSRAM \n");
   StaticRingbuffer_t *buffer_struct = (StaticRingbuffer_t *)heap_caps_malloc(
@@ -527,23 +606,31 @@ void dsp_i2s_task_init(uint32_t sample_rate, bool slave) {
   uint8_t *buffer_storage = (uint8_t *)heap_caps_malloc(
       sizeof(uint8_t) * BUFFER_SIZE, MALLOC_CAP_SPIRAM);
   printf("Buffer_stoarge ok\n");
-  s_ringbuf_i2s = xRingbufferCreateStatic(BUFFER_SIZE, RINGBUF_TYPE_BYTEBUF,
+  s_ringbuf_i2s = xRingbufferCreateStatic(BUFFER_SIZE, RINGBUF_TYPE_NOSPLIT, // RINGBUF_TYPE_BYTEBUF,
                                           buffer_storage, buffer_struct);
   //s_ringbuf_i2s = xRingbufferCreateStatic(BUFFER_SIZE, RINGBUF_TYPE_BYTEBUF,
   //                                        buffer_storage, buffer_struct);
   printf("Ringbuf ok\n");
 #else
+//  static const size_t buf_size = 32 * 1024 + 72 * 1024;
+  static StaticRingbuffer_t buffer_struct;
+  static uint8_t buffer_storage[BUFFER_SIZE_X];
   printf(
-      "Setup ringbuffer using internal ram - only space for 150ms - Snapcast "
-      "buffer_ms parameter ignored \n");
-  s_ringbuf_i2s = xRingbufferCreate(32 * 1024, RINGBUF_TYPE_BYTEBUF);
+      "Setup ringbuffer using internal ram - only space for %dms - Snapcast "
+      "buffer_ms parameter ignored \n", FRAME_MS * BUFFER_FRAMES);
+  s_ringbuf_i2s = xRingbufferCreateStatic(sizeof(buffer_storage), RINGBUF_TYPE_NOSPLIT, // RINGBUF_TYPE_BYTEBUF,
+                                            buffer_storage, &buffer_struct);
+//  s_ringbuf_i2s = xRingbufferCreate(buf_size, RINGBUF_TYPE_BYTEBUF);
 #endif
   if (s_ringbuf_i2s == NULL) {
     printf("nospace for ringbuffer\n");
     return;
   }
   printf("Ringbuffer ok\n");
-  xTaskCreatePinnedToCore(dsp_i2s_task_handler, "DSP_I2S", 48 * 1024, NULL, 5,
+#ifdef CONFIG_USE_DSP_SOFT_VOLUME
+  dsp_i2s_set_volume(1.0);
+#endif /* CONFIG_USE_DSP_SOFT_VOLUME */
+  xTaskCreatePinnedToCore(dsp_i2s_task_handler, "DSP_I2S", stack_size, NULL, 5,
                           &s_dsp_i2s_task_handle, 0);
   
 }
@@ -560,8 +647,11 @@ void dsp_i2s_task_deinit(void) {
 }
 
 size_t write_ringbuf(const uint8_t *data, size_t size) {
-  BaseType_t done = xRingbufferSend(s_ringbuf_i2s, (void *)data, size,
+  BaseType_t done = 0;
+  if (s_ringbuf_i2s) {
+    done = xRingbufferSend(s_ringbuf_i2s, (void *)data, size,
                                     (portTickType)portMAX_DELAY);
+  }
   return (done) ? size : 0;
 }
 

@@ -19,7 +19,7 @@ static const char* TAG = "WIFI";
 
 char mac_address[18];
 
-EventGroupHandle_t s_wifi_event_group;
+EventGroupHandle_t s_network_event_group;
 
 static int s_retry_num = 0;
 
@@ -42,19 +42,19 @@ void event_handler(void* arg, esp_event_base_t event_base, int32_t event_id,
       s_retry_num++;
       ESP_LOGI(TAG, "retry to connect to the AP");
     } else {
-      xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+      xEventGroupSetBits(s_network_event_group, NETWORK_FAIL_BIT);
     }
     ESP_LOGI(TAG, "connect to the AP fail");
   } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
     ip_event_got_ip_t* event = (ip_event_got_ip_t*)event_data;
     ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
     s_retry_num = 0;
-    xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+    xEventGroupSetBits(s_network_event_group, NETWORK_CONNECTED_BIT);
   }
 }
 
 void wifi_init_sta(void) {
-  s_wifi_event_group = xEventGroupCreate();
+  s_network_event_group = xEventGroupCreate();
 
   ESP_ERROR_CHECK(esp_netif_init());
 
@@ -87,15 +87,15 @@ void wifi_init_sta(void) {
   /* Waiting until either the connection is established (WIFI_CONNECTED_BIT) or
    * connection failed for the maximum number of re-tries (WIFI_FAIL_BIT). The
    * bits are set by event_handler() (see above) */
-  EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
-                                         WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
+  EventBits_t bits = xEventGroupWaitBits(s_network_event_group,
+                                         NETWORK_CONNECTED_BIT | NETWORK_FAIL_BIT,
                                          pdFALSE, pdFALSE, portMAX_DELAY);
 
   /* xEventGroupWaitBits() returns the bits before the call returned, hence we
    * can test which event actually happened. */
-  if (bits & WIFI_CONNECTED_BIT) {
+  if (bits & NETWORK_CONNECTED_BIT) {
     ESP_LOGI(TAG, "connected to ap SSID:%s", WIFI_SSID);
-  } else if (bits & WIFI_FAIL_BIT) {
+  } else if (bits & NETWORK_FAIL_BIT) {
     ESP_LOGI(TAG, "Failed to connect to SSID:%s, password:%s", WIFI_SSID,
              WIFI_PASSWORD);
   } else {

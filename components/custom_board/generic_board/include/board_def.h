@@ -32,18 +32,18 @@
 #define BUTTON_MUTE_ID 2
 #define BUTTON_SET_ID 3
 
-#define PA_ENABLE_GPIO GPIO_NUM_12
-#define ADC_DETECT_GPIO GPIO_NUM_36
-#define BATTERY_DETECT_GPIO GPIO_NUM_37
+#define PA_ENABLE_GPIO   GPIO_NUM_NC
+#define ADC_DETECT_GPIO  GPIO_NUM_NC
+#define BATTERY_DETECT_GPIO GPIO_NUM_NC
 
 #define SDCARD_OPEN_FILE_NUM_MAX 5
-#define SDCARD_INTR_GPIO GPIO_NUM_34
+#define SDCARD_INTR_GPIO GPIO_NUM_NC
 
 #define AUDIO_CODEC_DEFAULT_CONFIG()               \
   {                                                \
       .adc_input = AUDIO_HAL_ADC_INPUT_LINE1,      \
       .dac_output = AUDIO_HAL_DAC_OUTPUT_ALL,      \
-      .codec_mode = AUDIO_HAL_CODEC_MODE_BOTH,     \
+      .codec_mode = AUDIO_HAL_CODEC_MODE_DECODE,   \
       .i2s_iface =                                 \
           {                                        \
               .mode = AUDIO_HAL_MODE_SLAVE,        \

@@ -9,4 +9,4 @@
 
 COMPONENT_SRCDIRS := opus/src opus/silk opus/silk/fixed opus/celt
 COMPONENT_ADD_INCLUDEDIRS := . opus/include opus/silk opus/silk/fixed opus/celt
-CFLAGS += -DHAVE_CONFIG_H
+CFLAGS += -DHAVE_CONFIG_H -Os

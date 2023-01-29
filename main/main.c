@@ -17,7 +17,14 @@
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
 #include "nvs_flash.h"
+
+#ifdef CONFIG_WIFI_INTERFACE_ENABLE
 #include "wifi_interface.h"
+#endif // CONFIG_WIFI_ENABLE
+
+#ifdef CONFIG_ETHERNET_INTERFACE_ENABLE
+#include "ethernet_interface.h"
+#endif // CONFIG_ETHERNET_INTERFACE_ENABLE
 
 // Minimum ESP-IDF stuff only hardware abstraction stuff
 #include "board.h"
@@ -44,14 +51,22 @@
 #include "ota_server.h"
 #include "snapcast.h"
 
+#include "assert.h"
+
 //#include "ma120.h"
 void timeravg(struct timeval *tavg,struct timeval *tdif) ;
 
 xTaskHandle t_http_get_task;
+xTaskHandle t_wire_decoder_task;
 xQueueHandle prot_queue;
 xQueueHandle flow_queue;
 xQueueHandle i2s_queue;
-uint32_t buffer_ms = 400;
+#if !defined( CONFIG_USE_PSRAM )
+    const uint32_t buffer_ms = 50;
+#else
+    uint32_t buffer_ms = 400;
+#endif
+
 uint8_t muteCH[4] = {0};
 struct timeval tdif,tavg;
 audio_board_handle_t board_handle = NULL;
@@ -74,9 +89,100 @@ static const char *TAG = "SNAPCAST";
 static char buff[SNAPCAST_BUFF_LEN];
 
 extern char mac_address[18];
-extern EventGroupHandle_t s_wifi_event_group;
+extern EventGroupHandle_t s_network_event_group;
 
 enum codec_type { PCM, FLAC, OGG, OPUS };
+
+OpusDecoder *decoder = NULL;
+uint16_t channels;
+
+RingbufHandle_t wire_chunk_buffer;
+
+#define NO_TIMEOUT portMAX_DELAY
+#define ASSERT(x) assert(x)
+
+#define USE_WIRE_QUEUE 1
+
+struct wire_chunk_header {
+    tv_t timestamp;
+    uint32_t size;
+};
+
+struct wire_chunk_message_x {
+    struct wire_chunk_header header;
+    void *payload;
+};
+
+
+static void wire_decoder_task(void *pvParameters) {
+    static const unsigned frame_ms = 120; /* default max. frame size for opus */
+    static const unsigned sample_rate_kHz = 48 * 1000; /* 48kHz sample rate */
+    static const unsigned frame_buf_size = frame_ms * sample_rate_kHz / 1000 * 2 * sizeof(int16_t); /* 16bit stereo */
+    struct wire_chunk_header *wire_chunk_header;
+    size_t chunk_size = 0;
+    int frame_size;
+    void *chunk_ptr;
+    void *payload;
+    int16_t *audio =
+        (int16_t *)malloc(frame_buf_size);
+
+    uint8_t timestampSize[12];
+//    int16_t pcm_size = 120;
+    size_t chunk_res;
+
+    (void)pvParameters;
+    ASSERT(audio != NULL);
+    ESP_LOGI(TAG, "%s started", __func__);
+    for(;;) {
+      chunk_ptr =
+          xRingbufferReceive(wire_chunk_buffer, &chunk_size, NO_TIMEOUT);
+//      ESP_LOGI(TAG, "got %lu bytes form wire buffer",(unsigned long)chunk_size);
+      ASSERT(chunk_ptr != NULL);
+      wire_chunk_header = (struct wire_chunk_header *)chunk_ptr;
+      ASSERT(chunk_size == sizeof(struct wire_chunk_header) + wire_chunk_header->size);
+      payload = &((char*)(chunk_ptr))[sizeof(struct wire_chunk_header)];
+
+      while ((frame_size = opus_decode(decoder, (unsigned char *)payload, wire_chunk_header->size,
+                                       (opus_int16 *)audio, frame_buf_size / sizeof(int16_t) / channels,
+                                       0)) == OPUS_BUFFER_TOO_SMALL) {
+//        pcm_size = pcm_size * 2;
+        ESP_LOGI(TAG,
+                 "OPUS encoding buffer too small, resizing to %d "
+                 "samples per channel",
+                 0);
+      }
+      // ESP_LOGI(TAG, "time stamp in :
+      // %d",wire_chunk_message.timestamp.sec);
+      if (frame_size < 0) {
+        ESP_LOGE(TAG, "Decode error : %d \n", frame_size);
+      } else {
+        // pack(&timestampSize,wire_chunk_message.timestamp,frame_size*2*size(uint16_t))
+        memcpy(timestampSize, &wire_chunk_header->timestamp.sec,
+               sizeof(wire_chunk_header->timestamp.sec));
+        memcpy(timestampSize + 4, &wire_chunk_header->timestamp.usec,
+               sizeof(wire_chunk_header->timestamp.usec));
+        uint32_t chunk_size = frame_size * 2 * sizeof(uint16_t);
+        memcpy(timestampSize + 8, &chunk_size, sizeof(chunk_size));
+
+        // ESP_LOGI(TAG, "Network jitter %d %d",(uint32_t)
+        // wire_chunk_message.timestamp.usec/1000,
+        //                                          (uint32_t)
+        //                                          base_message.sent.usec/1000);
+
+        if ((chunk_res = write_ringbuf(timestampSize, 3 * sizeof(uint32_t))) !=
+            12) {
+          ESP_LOGI(TAG, "Error writing timestamp to ring buffer: %d",
+                   chunk_res);
+        }
+        if ((chunk_res = write_ringbuf((const uint8_t *)audio, chunk_size)) !=
+            chunk_size) {
+          ESP_LOGI(TAG, "Error writing data to ring buffer: %d", chunk_res);
+        }
+      }
+
+      vRingbufferReturnItem(wire_chunk_buffer, chunk_ptr);
+    }
+}
 
 static void http_get_task(void *pvParameters) {
   struct sockaddr_in servaddr;
@@ -90,7 +196,6 @@ static void http_get_task(void *pvParameters) {
   uint32_t client_state_muted = 0;
   struct timeval now, ttx, trx, tv1, last_time_sync;
 
-  uint8_t timestampSize[12];
 
   time_message_t time_message;
   double time_diff;
@@ -100,16 +205,18 @@ static void http_get_task(void *pvParameters) {
   id_counter = 0;
 
   int codec = 0;
-
-  OpusDecoder *decoder = NULL;
+#if !USE_WIRE_QUEUE
 
   int16_t *audio =
       (int16_t *)malloc(960 * 2 * sizeof(int16_t));  // 960*2: 20ms, 960*1: 10ms
 
   int16_t pcm_size = 120;
-  uint16_t channels;
-  uint32_t cnt = 0;
+#endif
+
+  uint8_t timestampSize[12];
   int chunk_res;
+  uint32_t cnt = 0;
+
   ESP_LOGI("I2S", "Call dsp setup" );
   dsp_i2s_task_init(48000, false);
 
@@ -118,7 +225,7 @@ static void http_get_task(void *pvParameters) {
        event group.
     */
 
-    xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT, false, true,
+    xEventGroupWaitBits(s_network_event_group, NETWORK_CONNECTED_BIT, false, true,
                         portMAX_DELAY);
 
     // configure a failsafe snapserver according to CONFIG values
@@ -307,7 +414,7 @@ static void http_get_task(void *pvParameters) {
             int error = 0;
             decoder = opus_decoder_create(rate, channels, &error);
             if (error != 0) {
-              ESP_LOGI(TAG, "Failed to init opus coder");
+              ESP_LOGI(TAG, "Failed to init opus coder (error code: %d)", error);
               return;
             }
             codec = OPUS;
@@ -347,9 +454,25 @@ static void http_get_task(void *pvParameters) {
           }
           size = wire_chunk_message.size;
           start = (wire_chunk_message.payload);
+#if !USE_WIRE_QUEUE
           int frame_size = 0;
+#endif
           switch (codec) {
             case OPUS:
+#if USE_WIRE_QUEUE
+            {
+                BaseType_t result;
+                char* buf;
+                result = xRingbufferSendAcquire(wire_chunk_buffer, (void **)&buf, sizeof(struct wire_chunk_header) + size, NO_TIMEOUT);
+                ASSERT(result == pdTRUE);
+                ASSERT(buf != NULL);
+                ((struct wire_chunk_header *)buf)->timestamp = wire_chunk_message.timestamp;
+                ((struct wire_chunk_header *)buf)->size = wire_chunk_message.size;
+                memcpy(&buf[sizeof(struct wire_chunk_header)], wire_chunk_message.payload, size);
+                result = xRingbufferSendComplete(wire_chunk_buffer, buf);
+                ASSERT(result == pdTRUE);
+            }
+#else
               while ((frame_size = opus_decode(decoder, (unsigned char *)start,
                                                size, (opus_int16 *)audio,
                                                pcm_size / channels, 0)) ==
@@ -389,6 +512,7 @@ static void http_get_task(void *pvParameters) {
                            chunk_res);
                 }
               }
+#endif
               break;
 
             case PCM:
@@ -434,8 +558,13 @@ static void http_get_task(void *pvParameters) {
             return;
           }
           // log mute state, buffer, latency
+#if defined( CONFIG_USE_PSRAM )
           buffer_ms = server_settings_message.buffer_ms;
-          ESP_LOGI(TAG, "Buffer length:  %d",
+#else
+          ESP_LOGI(TAG, "Server Buffer length ignored, using:  %d",
+                             buffer_ms);
+#endif
+          ESP_LOGI(TAG, "Server Buffer length:  %d",
                    server_settings_message.buffer_ms);
           ESP_LOGI(TAG, "Ringbuffer size:%d",
                    server_settings_message.buffer_ms * 48 * 4);
@@ -451,8 +580,16 @@ static void http_get_task(void *pvParameters) {
             xQueueSend(flow_queue, &client_state_muted, 10);
           }
           // Volume setting using ADF HAL abstraction
+#ifdef CONFIG_USE_DSP_SOFT_VOLUME
+          if (server_settings_message.muted) {
+              dsp_i2s_set_volume(0);
+          } else {
+              dsp_i2s_set_volume(server_settings_message.volume / 100.0);
+          }
+#else /* CONFIG_USE_DSP_SOFT_VOLUME */
           audio_hal_set_volume(board_handle->audio_hal,
                                server_settings_message.volume);
+#endif /* CONFIG_USE_DSP_SOFT_VOLUME */
           break;
 
         case SNAPCAST_MESSAGE_TIME:
@@ -590,12 +727,22 @@ void app_main(void) {
 
   dsp_setup_flow(500, 48000);
 
+#ifdef CONFIG_ETHERNET_INTERFACE_ENABLE
+  ESP_LOGI(TAG, "starting ethernet");
+  ethernet_interface_init();
+
+  ESP_LOGI(TAG, "eth up");
+#endif // CONFIG_ETHERNET_INTERFACE_ENABLE
+
+#ifdef CONFIG_WIFI_INTERFACE_ENABLE
   // Enable and setup WIFI in station mode  and connect to Access point setup in
   // menu config
   wifi_init_sta();
  
-  // Enable websocket server  
   ESP_LOGI(TAG, "Connected to AP");
+#endif // CONFIG_WIFI_INTERFACE_ENABLE
+
+// Enable websocket server
   ESP_LOGI(TAG, "Setup ws server");
   websocket_if_start();
  
@@ -606,13 +753,37 @@ void app_main(void) {
   flow_queue = xQueueCreate(10, sizeof(uint32_t));
   xTaskCreate(&ota_server_task, "ota_server_task", 4096, NULL, 15, NULL);
 
-  
-  xTaskCreatePinnedToCore(&http_get_task, "http_get_task", 3 * 4096, NULL, 5,
+#if USE_WIRE_QUEUE
+  wire_chunk_buffer = xRingbufferCreate(2048 * 3, RINGBUF_TYPE_NOSPLIT);
+  ASSERT(wire_chunk_buffer != 0);
+  xTaskCreatePinnedToCore(&wire_decoder_task, "decoder_task",  2048 * 6, NULL, 5,
+                          &t_wire_decoder_task, 1);
+
+  xTaskCreatePinnedToCore(&http_get_task, "http_get_task", 2048 * 1, NULL, 5,
                           &t_http_get_task, 1);
+#else
+  xTaskCreatePinnedToCore(&http_get_task, "http_get_task", 2 * 4096 + 2048 * 2, NULL, 5,
+                          &t_http_get_task, 1);
+#endif
   while (1) {
     // audio_event_iface_msg_t msg;
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
-    
+    vTaskDelay(5000 / portTICK_PERIOD_MS);
+
+#if 0
+    {
+        unsigned free_heap;
+        static char stat_buf[4 * 1024];
+        free_heap = xPortGetMinimumEverFreeHeapSize();
+        ESP_LOGI(TAG, "max free heap: %u", free_heap);
+        vTaskGetRunTimeStats(stat_buf);
+        puts(stat_buf);
+        puts("\r\n");
+        vTaskList(stat_buf);
+        puts(stat_buf);
+        puts("\r\n");
+    }
+#endif
+
     // ma120_read_error(0x20);
 
     esp_err_t ret = 0;  // audio_event_iface_listen(evt, &msg, portMAX_DELAY);
